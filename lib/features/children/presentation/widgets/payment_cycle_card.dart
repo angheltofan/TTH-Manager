@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/date_utils.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../domain/child_payment_status_row.dart';
 import 'attendance_row_item.dart';
 
 /// Renders one payment cycle with its attendance rows.
-/// All cycle metadata is passed as explicit fields derived from the grouped
-/// [ChildPaymentStatusRow] list â€” no separate payment cycle object needed.
 class PaymentCycleCard extends StatelessWidget {
   const PaymentCycleCard({
     super.key,
@@ -29,13 +28,12 @@ class PaymentCycleCard extends StatelessWidget {
   final DateTime? paidAt;
   final String? confirmedByName;
   final List<ChildPaymentStatusRow> rows;
-
-  /// Non-null when a confirm button should be shown (due/overdue cycles).
   final Future<void> Function()? onConfirmPayment;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isMobile = context.isMobile;
 
     final (statusColor, statusLabel) = switch (cycleStatus) {
       'paid' => (const Color(0xFF22C55E), 'Plătit'),
@@ -43,12 +41,11 @@ class PaymentCycleCard extends StatelessWidget {
       'due' => (const Color(0xFFF59E0B), 'De plată'),
       'overdue' => (const Color(0xFFEF4444), 'Restant'),
       'cancelled' => (const Color(0xFF94A3B8), 'Anulat'),
-      _ => (const Color(0xFF94A3B8), cycleStatus ?? 'â€”'),
+      _ => (const Color(0xFF94A3B8), cycleStatus ?? '—'),
     };
 
-    final cycleTitle = cycleNumber != null
-        ? 'Ciclu de platÄƒ #$cycleNumber'
-        : 'Ciclu de platÄƒ';
+    final cycleTitle =
+        cycleNumber != null ? 'Ciclu de plată #$cycleNumber' : 'Ciclu de plată';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -60,73 +57,83 @@ class PaymentCycleCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title row
-                Row(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Text(
-                            cycleTitle,
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(width: 8),
-                          _StatusPill(
-                              label: statusLabel, color: statusColor),
-                        ],
-                      ),
-                    ),
-                    if (onConfirmPayment != null)
-                      _ConfirmButton(onConfirm: onConfirmPayment!),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // Meta row
-                DefaultTextStyle(
-                  style: theme.textTheme.bodySmall!.copyWith(
-                    color: theme.colorScheme.onSurface
-                        .withValues(alpha: 0.55),
-                    fontSize: 11,
-                  ),
-                  child: Row(
+                // Title + status badge (+ confirm button on desktop)
+                if (isMobile) ...[
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      if (periodStart != null && periodEnd != null) ...[
-                        const Icon(Icons.calendar_today_outlined,
-                            size: 12),
-                        const SizedBox(width: 4),
-                        Text(
-                            '${formatDate(periodStart!)} â€“ ${formatDate(periodEnd!)}'),
-                        const SizedBox(width: 12),
-                      ],
-                      Icon(Icons.groups_outlined,
-                          size: 12,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.55)),
-                      const SizedBox(width: 4),
-                      Text('${rows.length} È™edinÈ›e'),
-                      const Spacer(),
-                      if (paidAt != null)
-                        Text(
-                          'PlÄƒtit la: ${formatDate(paidAt!)}'
-                          '${confirmedByName != null ? ' de $confirmedByName' : ''}',
-                        )
-                      else if (cycleStatus == 'due' ||
-                          cycleStatus == 'overdue')
-                        Text(
-                          'ScadentÄƒ',
-                          style: TextStyle(
-                              color: statusColor,
-                              fontWeight: FontWeight.w600),
-                        ),
+                      Text(
+                        cycleTitle,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      _StatusPill(label: statusLabel, color: statusColor),
+                      if (onConfirmPayment != null)
+                        _ConfirmButton(onConfirm: onConfirmPayment!),
                     ],
                   ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Text(
+                              cycleTitle,
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(width: 8),
+                            _StatusPill(label: statusLabel, color: statusColor),
+                          ],
+                        ),
+                      ),
+                      if (onConfirmPayment != null)
+                        _ConfirmButton(onConfirm: onConfirmPayment!),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 6),
+                // Meta info – wrap on mobile
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    if (periodStart != null && periodEnd != null)
+                      _MetaChip(
+                        icon: Icons.calendar_today_outlined,
+                        text:
+                            '${formatDate(periodStart!)} – ${formatDate(periodEnd!)}',
+                        theme: theme,
+                      ),
+                    _MetaChip(
+                      icon: Icons.groups_outlined,
+                      text: '${rows.length} ședințe',
+                      theme: theme,
+                    ),
+                    if (paidAt != null)
+                      _MetaChip(
+                        icon: Icons.check_circle_outline,
+                        text: 'Plătit la: ${formatDate(paidAt!)}'
+                            '${confirmedByName != null ? ' de $confirmedByName' : ''}',
+                        theme: theme,
+                      )
+                    else if (cycleStatus == 'due' || cycleStatus == 'overdue')
+                      _MetaChip(
+                        icon: Icons.warning_amber_rounded,
+                        text: 'Scadentă',
+                        theme: theme,
+                        color: statusColor,
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 12),
               ],
@@ -139,7 +146,7 @@ class PaymentCycleCard extends StatelessWidget {
             color: theme.colorScheme.outline.withValues(alpha: 0.12),
           ),
 
-          // â”€â”€ Attendance table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // Attendance rows
           if (rows.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
@@ -149,7 +156,7 @@ class PaymentCycleCard extends StatelessWidget {
                   for (int i = 0; i < rows.length; i++)
                     AttendanceRowItem(
                       index: i + 1,
-                      workshopTitle: rows[i].workshopTitle ?? 'â€”',
+                      workshopTitle: rows[i].workshopTitle ?? '—',
                       dayOfWeek: rows[i].dayOfWeek,
                       workshopDate: rows[i].workshopDate,
                       startTime: rows[i].startTime,
@@ -164,7 +171,7 @@ class PaymentCycleCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Text(
-                'Nu existÄƒ prezenÈ›e Ã®nregistrate pentru acest ciclu.',
+                'Nu există prezențe înregistrate pentru acest ciclu.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
@@ -175,7 +182,37 @@ class PaymentCycleCard extends StatelessWidget {
   }
 }
 
-// â”€â”€ Confirm payment button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Meta chip ─────────────────────────────────────────────────────────────────
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({
+    required this.icon,
+    required this.text,
+    required this.theme,
+    this.color,
+  });
+  final IconData icon;
+  final String text;
+  final ThemeData theme;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: c),
+        const SizedBox(width: 4),
+        Text(text,
+            style: theme.textTheme.bodySmall!
+                .copyWith(color: c, fontSize: 11, fontWeight: color != null ? FontWeight.w600 : null)),
+      ],
+    );
+  }
+}
+
+// ── Confirm payment button ────────────────────────────────────────────────────
 
 class _ConfirmButton extends StatefulWidget {
   const _ConfirmButton({required this.onConfirm});
@@ -196,8 +233,8 @@ class _ConfirmButtonState extends State<_ConfirmButton> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: const TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w600),
+        textStyle:
+            const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
       ),
       child: _loading
           ? const SizedBox(
@@ -206,7 +243,7 @@ class _ConfirmButtonState extends State<_ConfirmButton> {
               child: CircularProgressIndicator(
                   strokeWidth: 2, color: Colors.white),
             )
-          : const Text('ConfirmÄƒ plata'),
+          : const Text('Confirmă plata'),
     );
   }
 
@@ -220,7 +257,7 @@ class _ConfirmButtonState extends State<_ConfirmButton> {
   }
 }
 
-// â”€â”€ Status pill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Status pill ───────────────────────────────────────────────────────────────
 
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.label, required this.color});
@@ -229,8 +266,7 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(20),

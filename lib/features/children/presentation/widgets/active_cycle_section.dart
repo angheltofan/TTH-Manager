@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/utils/responsive.dart';
 import '../../domain/child_current_status_row.dart';
 import '../../providers/child_details_providers.dart';
 import 'attendance_row_item.dart';
@@ -35,37 +36,47 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final rows = widget.currentRows;
+    final isMobile = context.isMobile;
+
+    final titleWidget = Text(
+      'Ciclu activ',
+      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+    );
+
+    final actionWidget = _showAsConfirmed
+        ? const ConfirmedBadge()
+        : FilledButton(
+            onPressed: _onConfirm,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            child: const Text('Confirmă plata'),
+          );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Title row ──────────────────────────────────────────────────────
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Ciclu activ',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-            if (_showAsConfirmed)
-              const ConfirmedBadge()
-            else
-              FilledButton(
-                onPressed: _onConfirm,
-                style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  textStyle: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-                child: const Text('Confirmă plata'),
-              ),
-          ],
-        ),
+        if (isMobile)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleWidget,
+              const SizedBox(height: 6),
+              actionWidget,
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(child: titleWidget),
+              actionWidget,
+            ],
+          ),
         const SizedBox(height: 4),
         Text(
           _showAsConfirmed

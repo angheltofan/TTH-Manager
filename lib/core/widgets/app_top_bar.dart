@@ -18,20 +18,26 @@ String titleForPath(String path) {
   return 'Dashboard';
 }
 
+// Breakpoints
+const _kMobileBreakpoint = 600.0;
+
 // ── Mobile / tablet top app bar ───────────────────────────────────────────────
 
 class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
   const AppTopBar({super.key});
 
+  /// Toolbar height (56) + bottom divider (1).
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(57);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final path = GoRouterState.of(context).uri.path;
     final profileAsync = ref.watch(currentProfileProvider);
+    final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
 
     return AppBar(
+      toolbarHeight: 56,
       title: Text(
         titleForPath(path),
         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
@@ -44,6 +50,8 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
             name: profile?.fullName ?? 'Utilizator',
             role: roleName(profile?.role ?? ''),
             onLogout: () => ref.read(authRepositoryProvider).signOut(),
+            // On mobile only avatar is shown; name/role/logout move to popup.
+            compact: isMobile,
           ),
           loading: () => const SizedBox.shrink(),
           error: (_, __) => const SizedBox.shrink(),

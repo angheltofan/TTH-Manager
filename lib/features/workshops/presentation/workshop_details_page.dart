@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_utils.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
@@ -124,7 +125,7 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
               rows.where((r) => r.childId != null).toList();
 
           return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: context.mobilePadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

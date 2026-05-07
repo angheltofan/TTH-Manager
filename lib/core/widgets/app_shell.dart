@@ -52,16 +52,30 @@ class AppShell extends ConsumerWidget {
         return Scaffold(
           appBar: const AppTopBar(),
           body: child,
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: currentIndex < 0 ? 0 : currentIndex,
-            onDestinationSelected: (i) => context.go(_navItems[i].path),
-            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-            destinations: _navItems
-                .map((item) => NavigationDestination(
-                      icon: Icon(item.icon),
-                      label: item.label,
-                    ))
-                .toList(),
+          bottomNavigationBar: SafeArea(
+            bottom: true,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                navigationBarTheme: NavigationBarThemeData(
+                  height: 64,
+                  labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                    return const TextStyle(fontSize: 12);
+                  }),
+                ),
+              ),
+              child: NavigationBar(
+                selectedIndex: currentIndex < 0 ? 0 : currentIndex,
+                onDestinationSelected: (i) => context.go(_navItems[i].path),
+                labelBehavior:
+                    NavigationDestinationLabelBehavior.onlyShowSelected,
+                destinations: _navItems
+                    .map((item) => NavigationDestination(
+                          icon: Icon(item.icon),
+                          label: item.label,
+                        ))
+                    .toList(),
+              ),
+            ),
           ),
         );
       },

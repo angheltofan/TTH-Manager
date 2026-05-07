@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../../../core/utils/workshop_type_helper.dart';
 import '../../domain/workshop_detail_row.dart';
 
@@ -14,12 +15,13 @@ class WorkshopHeaderCard extends StatelessWidget {
     final theme = Theme.of(context);
     final typeColor = WorkshopTypeHelper.colorForType(row.workshopType);
     final typeIcon = WorkshopTypeHelper.iconForType(row.workshopType);
+    final isMobile = context.isMobile;
 
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: EdgeInsets.all(isMobile ? 16 : 22),
       decoration: BoxDecoration(
         color: theme.cardTheme.color,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(isMobile ? 16 : 20),
         border: Border.all(
             color: theme.colorScheme.outline.withValues(alpha: 0.35)),
       ),
@@ -30,15 +32,15 @@ class WorkshopHeaderCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 52,
-                height: 52,
+                width: isMobile ? 44 : 52,
+                height: isMobile ? 44 : 52,
                 decoration: BoxDecoration(
                   color: typeColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
                 ),
-                child: Icon(typeIcon, color: typeColor, size: 26),
+                child: Icon(typeIcon, color: typeColor, size: isMobile ? 22 : 26),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: isMobile ? 12 : 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,32 +58,31 @@ class WorkshopHeaderCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          Row(
+          SizedBox(height: isMobile ? 14 : 18),
+          // Info chips – Wrap prevents overflow on narrow screens
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               WorkshopInfoChip(
                 icon: Icons.calendar_today_outlined,
-                label:
-                    '${row.dayOfWeek}, ${formatDate(row.workshopDate)}',
+                label: '${row.dayOfWeek}, ${formatDate(row.workshopDate)}',
                 color: AppColors.purple,
               ),
-              const SizedBox(width: 10),
               WorkshopInfoChip(
                 icon: Icons.access_time_rounded,
                 label:
                     '${formatTimeString(row.startTime)} – ${formatTimeString(row.endTime)}',
                 color: AppColors.info,
               ),
+              if (row.trainerName != null)
+                WorkshopInfoChip(
+                  icon: Icons.person_outline,
+                  label: row.trainerName!,
+                  color: AppColors.success,
+                ),
             ],
           ),
-          if (row.trainerName != null) ...[
-            const SizedBox(height: 10),
-            WorkshopInfoChip(
-              icon: Icons.person_outline,
-              label: row.trainerName!,
-              color: AppColors.success,
-            ),
-          ],
         ],
       ),
     );

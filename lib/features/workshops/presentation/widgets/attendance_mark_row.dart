@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../../../core/widgets/initials_avatar.dart';
 import '../../domain/workshop_detail_row.dart';
 import 'attendance_dialog.dart';
@@ -23,13 +24,150 @@ class ChildAttendanceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMobile) return _MobileRow(row: this);
+    return _DesktopRow(row: this);
+  }
+}
+
+// ── Mobile layout: name first, buttons below ─────────────────────────────────
+
+class _MobileRow extends StatelessWidget {
+  const _MobileRow({required this.row});
+  final ChildAttendanceRow row;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final r = row.row;
     final fullName =
-        '${row.childFirstName ?? ''} ${row.childLastName ?? ''}'.trim();
-    final status = row.attendanceStatus;
+        '${r.childFirstName ?? ''} ${r.childLastName ?? ''}'.trim();
+    final status = r.attendanceStatus;
 
     return InkWell(
-      onTap: onTap,
+      onTap: row.onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Row 1: avatar + name + parent ───────────────────────────
+            Row(
+              children: [
+                ChildAvatar(name: fullName, size: 36),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fullName,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (r.parentName != null)
+                        Text(
+                          r.parentName!,
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.outline),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            // ── Row 2: buttons or status chip ────────────────────────────
+            if (row.isLoading)
+              const Padding(
+                padding: EdgeInsets.only(top: 8, left: 46),
+                child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (row.canMark)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 46),
+                child: Row(
+                  children: [
+                    AttendanceToggleButton(
+                      label: 'P',
+                      icon: Icons.check_rounded,
+                      selected: status == 'present',
+                      selectedColor: AppColors.success,
+                      onTap: () => showDialog<void>(
+                        context: context,
+                        builder: (_) => AttendanceDialog(
+                          initialStatus: 'present',
+                          currentObs: r.attendanceObservation,
+                          onSave: row.onMark,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AttendanceToggleButton(
+                      label: 'A',
+                      icon: Icons.close_rounded,
+                      selected: status == 'absent',
+                      selectedColor: AppColors.error,
+                      onTap: () => showDialog<void>(
+                        context: context,
+                        builder: (_) => AttendanceDialog(
+                          initialStatus: 'absent',
+                          currentObs: r.attendanceObservation,
+                          onSave: row.onMark,
+                        ),
+                      ),
+                    ),
+                    if (r.attendanceObservation != null &&
+                        r.attendanceObservation!.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          r.attendanceObservation!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                              fontStyle: FontStyle.italic),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 46),
+                child: AttendanceStatusChip(status: status),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Desktop layout: single row (unchanged behaviour) ─────────────────────────
+
+class _DesktopRow extends StatelessWidget {
+  const _DesktopRow({required this.row});
+  final ChildAttendanceRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final r = row.row;
+    final fullName =
+        '${r.childFirstName ?? ''} ${r.childLastName ?? ''}'.trim();
+    final status = r.attendanceStatus;
+
+    return InkWell(
+      onTap: row.onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -48,18 +186,18 @@ class ChildAttendanceRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (row.parentName != null)
+                  if (r.parentName != null)
                     Text(
-                      row.parentName!,
+                      r.parentName!,
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.outline),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  if (row.attendanceObservation != null &&
-                      row.attendanceObservation!.isNotEmpty)
+                  if (r.attendanceObservation != null &&
+                      r.attendanceObservation!.isNotEmpty)
                     Text(
-                      row.attendanceObservation!,
+                      r.attendanceObservation!,
                       style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.outline,
                           fontStyle: FontStyle.italic),
@@ -70,13 +208,12 @@ class ChildAttendanceRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            if (isLoading)
+            if (row.isLoading)
               const SizedBox(
-                width: 32,
-                height: 32,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else if (canMark)
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+            else if (row.canMark)
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -89,8 +226,8 @@ class ChildAttendanceRow extends StatelessWidget {
                       context: context,
                       builder: (_) => AttendanceDialog(
                         initialStatus: 'present',
-                        currentObs: row.attendanceObservation,
-                        onSave: onMark,
+                        currentObs: r.attendanceObservation,
+                        onSave: row.onMark,
                       ),
                     ),
                   ),
@@ -104,8 +241,8 @@ class ChildAttendanceRow extends StatelessWidget {
                       context: context,
                       builder: (_) => AttendanceDialog(
                         initialStatus: 'absent',
-                        currentObs: row.attendanceObservation,
-                        onSave: onMark,
+                        currentObs: r.attendanceObservation,
+                        onSave: row.onMark,
                       ),
                     ),
                   ),
@@ -119,6 +256,7 @@ class ChildAttendanceRow extends StatelessWidget {
     );
   }
 }
+
 
 class AttendanceToggleButton extends StatelessWidget {
   const AttendanceToggleButton({

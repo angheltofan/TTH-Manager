@@ -35,6 +35,7 @@ class DashboardHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(currentProfileProvider);
     final theme = Theme.of(context);
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     final greetingText = profileAsync.maybeWhen(
       data: (p) {
@@ -46,31 +47,44 @@ class DashboardHeader extends ConsumerWidget {
       orElse: () => '${greeting()}! 👋',
     );
 
+    final dateBlock = _DateBlock(date: formattedDate(), day: dayOfWeek());
+
+    final greetingColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          greetingText,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Iată ce se întâmplă astăzi în ateliere.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      ],
+    );
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          greetingColumn,
+          const SizedBox(height: 10),
+          dateBlock,
+        ],
+      );
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                greetingText,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Iată ce se întâmplă astăzi în ateliere.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
-          ),
-        ),
-        _DateBlock(date: formattedDate(), day: dayOfWeek()),
+        Expanded(child: greetingColumn),
+        dateBlock,
       ],
     );
   }

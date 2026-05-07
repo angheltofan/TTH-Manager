@@ -2,6 +2,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
@@ -63,7 +64,7 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
             return const Center(child: Text('Copilul nu a fost găsit.'));
           }
           return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+            padding: context.mobilePadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -75,15 +76,15 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
                       ? workshopsAsync.valueOrNull!.first.workshopType
                       : null,
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: context.sectionGap),
 
                 // 2. Atelierul la care vine
                 AssignedWorkshopsCard(childId: widget.childId),
-                const SizedBox(height: 16),
+                SizedBox(height: context.sectionGap),
 
                 // 3. Status actual
                 CurrentStatusCard(childId: widget.childId),
-                const SizedBox(height: 16),
+                SizedBox(height: context.sectionGap),
 
                 // 4. Status plată
                 PaymentStatusCard(childId: widget.childId),
