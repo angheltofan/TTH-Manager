@@ -1,0 +1,183 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/supabase/supabase_client_provider.dart';
+import '../../auth/providers/auth_providers.dart';
+import '../../trainers/providers/trainers_providers.dart';
+import '../data/child_attendance_repository.dart';
+import '../data/children_repository.dart';
+import '../domain/child_row.dart';
+
+// ── Repository ───────────────────────────────────────────────────────────────
+
+final childrenRepositoryProvider = Provider<ChildrenRepository>((ref) {
+  return ChildrenRepository(ref.watch(supabaseClientProvider));
+});
+
+final childAttendanceRepositoryProvider =
+    Provider<ChildAttendanceRepository>((ref) {
+  return ChildAttendanceRepository(ref.watch(supabaseClientProvider));
+});
+
+// ── Full list with workshops + attendance (role-aware) ───────────────────────
+
+final allChildrenProvider = FutureProvider<List<ChildRow>>((ref) {
+  final repo = ref.watch(childrenRepositoryProvider);
+  return repo.getAllWithWorkshops();
+});
+
+// ── Filter / pagination state ─────────────────────────────────────────────────
+
+final childrenSearchProvider = StateProvider<String>((ref) => '');
+
+/// null = all, 'active' = active only, 'inactive' = inactive only
+final childrenActiveFilterProvider = StateProvider<String?>((ref) => null);
+
+/// workshop id to filter by, or null for all
+final childrenWorkshopFilterProvider = StateProvider<String?>((ref) => null);
+
+/// trainer id to filter by, or null for all
+final childrenTrainerFilterProvider = StateProvider<String?>((ref) => null);
+
+final childrenPageProvider = StateProvider<int>((ref) => 0);
+final childrenPageSizeProvider = StateProvider<int>((ref) => 10);
+
+// ── Derived: filtered list ───────────────────────────────────────────────────
+
+final filteredChildrenProvider =
+    Provider<AsyncValue<List<ChildRow>>>((ref) {
+  final allAsync = ref.watch(allChildrenProvider);
+  final search = ref.watch(childrenSearchProvider).trim().toLowerCase();
+  final activeFilter = ref.watch(childrenActiveFilterProvider);
+  final workshopFilter = ref.watch(childrenWorkshopFilterProvider);
+  final trainerFilter = ref.watch(childrenTrainerFilterProvider);
+
+  return allAsync.whenData((list) {
+    final filtered = list.where((c) {
+      if (search.isNotEmpty) {
+        final nameMatch = c.fullName.toLowerCase().contains(search);
+        final parentMatch =
+            c.parentName?.toLowerCase().contains(search) ?? false;
+        if (!nameMatch && !parentMatch) return false;
+      }
+      if (activeFilter == 'active' && c.isActive != true) return false;
+      if (activeFilter == 'inactive' && c.isActive == true) return false;
+      if (workshopFilter != null &&
+          !c.workshops.any((w) => w.title == workshopFilter)) {
+        return false;
+      }
+      if (trainerFilter != null &&
+          !c.workshops.any((w) => w.trainerId == trainerFilter)) {
+        return false;
+      }
+      return true;
+    }).toList()
+      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    return filtered;
+  });
+});
+
+// ── Derived: unique workshops for filter dropdown ────────────────────────────
+
+// Workshop options deduplicated by title — multiple scheduled rows can share
+// the same title (different weeks of the same recurring series). The key is
+// the title itself so the filter comparison is also title-based.
+final childrenWorkshopOptionsProvider =
+    Provider<List<MapEntry<String, String>>>((ref) {
+  final list = ref.watch(allChildrenProvider).valueOrNull ?? [];
+  final seen = <String>{};
+  final result = <MapEntry<String, String>>[];
+  for (final c in list) {
+    for (final w in c.workshops) {
+      if (seen.add(w.title)) {
+        result.add(MapEntry(w.title, w.title));
+      }
+    }
+  }
+  result.sort((a, b) => a.value.compareTo(b.value));
+  return result;
+});
+
+// ── Derived: trainer list for filter dropdown ─────────────────────────────────
+
+final childrenTrainersProvider =
+    Provider<List<MapEntry<String, String>>>((ref) {
+  final trainers = ref.watch(trainersListProvider).valueOrNull ?? [];
+  return trainers
+      .map((t) => MapEntry(t.id, t.fullName))
+      .toList()
+    ..sort((a, b) => a.value.compareTo(b.value));
+});
+
+// ── Weekly attendances (present status only, Mon–Sun current week) ───────────
+
+final weeklyAttendancesProvider = FutureProvider<int>((ref) async {
+  final client = ref.watch(supabaseClientProvider);
+  final now = DateTime.now();
+  final monday =
+      DateTime(now.year, now.month, now.day - (now.weekday - 1));
+  final sunday = monday.add(const Duration(days: 6));
+  final from = monday.toIso8601String().substring(0, 10);
+  final to = sunday.toIso8601String().substring(0, 10);
+
+  final data = await client
+      .from('workshop_details')
+      .select('attendance_status')
+      .eq('attendance_status', 'present')
+      .gte('workshop_date', from)
+      .lte('workshop_date', to);
+
+  return (data as List).length;
+});
+
+// ── Legacy providers (kept for child edit form) ───────────────────────────────
+
+final childDetailProvider = FutureProvider.family<Child?, String>((ref, id) {
+  return ref.watch(childrenRepositoryProvider).getById(id);
+});
+
+final childAttendanceHistoryProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
+        (ref, childId) async {
+  final profile = await ref.watch(currentProfileProvider.future);
+  final repo = ref.read(childAttendanceRepositoryProvider);
+  if (profile?.isTrainer ?? false) {
+    return repo.getAttendanceHistoryForTrainerFull(childId, profile!.id);
+  }
+  return repo.getAttendanceHistoryFull(childId);
+});
+
+final childPaymentsProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
+        (ref, childId) {
+  return ref.watch(childAttendanceRepositoryProvider).getPayments(childId);
+});
+
+final childActivityHistoryProvider = FutureProvider.family<
+    ({List<Map<String, dynamic>> rows, bool hasMore}),
+    String>((ref, childId) {
+  final limit = ref.watch(childActivityLimitProvider(childId));
+  return ref
+      .watch(childAttendanceRepositoryProvider)
+      .getActivityHistory(childId, limit: limit);
+});
+
+final childActivityLimitProvider =
+    StateProvider.family<int, String>((ref, childId) => 20);
+
+// ── Current payment cycle ─────────────────────────────────────────────────────
+
+final childCurrentCycleSummaryProvider =
+    FutureProvider.family<Map<String, dynamic>?, String>((ref, childId) {
+  return ref
+      .watch(childAttendanceRepositoryProvider)
+      .getCurrentCycleSummary(childId);
+});
+
+final childCurrentCycleActivityProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
+        (ref, childId) {
+  return ref
+      .watch(childAttendanceRepositoryProvider)
+      .getCurrentCycleActivity(childId);
+});
+

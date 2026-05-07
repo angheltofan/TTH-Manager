@@ -1,0 +1,205 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../domain/series_enrolled_child.dart';
+import '../domain/workshop_series.dart';
+
+class EnrollmentRepository {
+  const EnrollmentRepository(this._client);
+
+  final SupabaseClient _client;
+
+  // ── Workshop Series ────────────────────────────────────────────────────────
+
+  /// Fetches all active workshop series. Does NOT join profiles —
+  /// this keeps the query simple and avoids silent row exclusion when
+  /// [trainer_id] is NULL (PostgREST inner-joins on FK hints by default).
+  Future<List<WorkshopSeries>> fetchActiveWorkshopSeries() async {
+    final data = await _client
+        .from('workshop_series')
+        .select(
+            'id, title, workshop_type, day_of_week, start_time, end_time, '
+            'trainer_id, notes, is_active')
+        .eq('is_active', true)
+        .order('title');
+    return (data as List)
+        .map((e) => WorkshopSeries.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<WorkshopSeries?> fetchWorkshopSeriesById(String id) async {
+    final data = await _client
+        .from('workshop_series')
+        .select(
+            'id, title, workshop_type, day_of_week, start_time, end_time, '
+            'trainer_id, notes, is_active, '
+            'profiles!trainer_id(first_name, last_name)')
+        .eq('id', id)
+        .maybeSingle();
+    return data != null ? WorkshopSeries.fromMap(data) : null;
+  }
+
+  // ── Child → Series ────────────────────────────────────────────────────────
+
+  /// Active series a child is enrolled in.
+  /// Does NOT join profiles — avoids silent row exclusion when trainer_id IS NULL.
+  Future<List<WorkshopSeries>> fetchChildWorkshopSeries(
+      String childId) async {
+    final data = await _client
+        .from('workshop_enrollments')
+        .select(
+            'workshop_series!series_id('
+            'id, title, workshop_type, day_of_week, start_time, end_time, '
+            'trainer_id, notes, is_active)')
+        .eq('child_id', childId)
+        .eq('is_active', true);
+
+    return (data as List)
+        .map((e) {
+          final ws =
+              (e as Map<String, dynamic>)['workshop_series'];
+          if (ws == null) return null;
+          return WorkshopSeries.fromMap(ws as Map<String, dynamic>);
+        })
+        .whereType<WorkshopSeries>()
+        .toList();
+  }
+
+  /// Active workshop series that [childId] is NOT yet enrolled in.
+  ///
+  /// Reads [workshop_enrollments] to get already-assigned series ids, then
+  /// returns all active [workshop_series] rows that are not in that set.
+  /// If the enrollment read fails (RLS not configured), shows all active series
+  /// so the admin can still attempt to enroll.
+  Future<List<WorkshopSeries>> fetchAvailableWorkshopSeriesForChild(
+      String childId) async {
+    var assignedIds = <String>{};
+    try {
+      final enrolled = await _client
+          .from('workshop_enrollments')
+          .select('series_id')
+          .eq('child_id', childId)
+          .eq('is_active', true);
+      assignedIds = (enrolled as List)
+          .map((e) =>
+              (e as Map<String, dynamic>)['series_id'] as String)
+          .toSet();
+    } catch (_) {
+      // Enrollment table unreadable — fall back to showing all series.
+    }
+
+    final all = await _client
+        .from('workshop_series')
+        .select(
+            'id, title, workshop_type, day_of_week, start_time, end_time, '
+            'trainer_id, notes, is_active')
+        .eq('is_active', true)
+        .order('title');
+
+    return (all as List)
+        .cast<Map<String, dynamic>>()
+        .where((s) => !assignedIds.contains(s['id'] as String))
+        .map((s) => WorkshopSeries.fromMap(s))
+        .toList();
+  }
+
+  // ── Series → Children ─────────────────────────────────────────────────────
+
+  /// Active children enrolled in a workshop series, sorted by name.
+  Future<List<SeriesEnrolledChild>> fetchWorkshopSeriesChildren(
+      String seriesId) async {
+    final data = await _client
+        .from('workshop_enrollments')
+        .select(
+            'id, child_id, is_active, '
+            'children!child_id(first_name, last_name, is_active)')
+        .eq('series_id', seriesId)
+        .eq('is_active', true);
+
+    final rows = (data as List)
+        .map((e) =>
+            SeriesEnrolledChild.fromMap(e as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    return rows;
+  }
+
+  /// Children who are active and NOT already enrolled (active) in [seriesId].
+  /// If the enrollment read fails (e.g. RLS not configured), falls back to
+  /// returning all active children.
+  Future<List<Map<String, dynamic>>> fetchAvailableChildrenForSeries(
+      String seriesId) async {
+    var enrolledIds = <String>{};
+    try {
+      final enrolled = await _client
+          .from('workshop_enrollments')
+          .select('child_id')
+          .eq('series_id', seriesId)
+          .eq('is_active', true);
+      enrolledIds = (enrolled as List)
+          .map((e) => (e as Map<String, dynamic>)['child_id'] as String)
+          .toSet();
+    } catch (_) {
+      // If we can't read enrollments (RLS not configured), show all children
+      // so the admin can still attempt to enroll them.
+    }
+
+    final all = await _client
+        .from('children')
+        .select('id, first_name, last_name')
+        .eq('is_active', true)
+        .order('last_name');
+
+    return (all as List)
+        .cast<Map<String, dynamic>>()
+        .where((c) => !enrolledIds.contains(c['id'] as String))
+        .toList();
+  }
+
+  // ── Enrollment mutations ──────────────────────────────────────────────────
+
+  /// Enrolls a child in a workshop series.
+  ///
+  /// Uses INSERT first. On a unique-constraint violation (duplicate row that
+  /// may be inactive), falls back to UPDATE so we only need the INSERT RLS
+  /// policy plus a separate UPDATE policy — rather than the combined
+  /// ON CONFLICT DO UPDATE that [upsert] requires.
+  Future<void> enrollChildInWorkshopSeries(
+      String childId, String seriesId) async {
+    try {
+      await _client.from('workshop_enrollments').insert({
+        'child_id': childId,
+        'series_id': seriesId,
+        'is_active': true,
+      });
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') {
+        // Row already exists (possibly inactive) — re-activate it.
+        await _client
+            .from('workshop_enrollments')
+            .update({'is_active': true})
+            .eq('child_id', childId)
+            .eq('series_id', seriesId);
+      } else {
+        rethrow;
+      }
+    }
+  }
+
+  /// Bulk-enrolls multiple children by calling [enrollChildInWorkshopSeries]
+  /// for each, so the insert-then-update fallback applies to every child.
+  Future<void> enrollChildrenInWorkshopSeries(
+      String seriesId, List<String> childIds) async {
+    for (final childId in childIds) {
+      await enrollChildInWorkshopSeries(childId, seriesId);
+    }
+  }
+
+  Future<void> removeChildFromWorkshopSeries(
+      String childId, String seriesId) async {
+    await _client
+        .from('workshop_enrollments')
+        .update({'is_active': false})
+        .eq('child_id', childId)
+        .eq('series_id', seriesId);
+  }
+}
