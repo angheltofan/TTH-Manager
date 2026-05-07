@@ -61,16 +61,23 @@ class _AppNotificationBellState extends ConsumerState<AppNotificationBell> {
 
   void _openSheet() {
     final theme = Theme.of(context);
+    // Capture screen height before entering the builder so it's not called
+    // inside build() of the sheet itself.
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.70;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       clipBehavior: Clip.antiAlias,
-      builder: (sheetCtx) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.80,
+      builder: (sheetCtx) => ConstrainedBox(
+        // Content-based height: the dropdown Column uses mainAxisSize.min so
+        // it naturally sizes to its content. ConstrainedBox only applies a
+        // ceiling — the sheet will be short when there are few notifications.
+        constraints: BoxConstraints(maxHeight: maxHeight),
         child: NotificationDropdown(
           showHandle: true,
           onClose: () => Navigator.of(sheetCtx).pop(),

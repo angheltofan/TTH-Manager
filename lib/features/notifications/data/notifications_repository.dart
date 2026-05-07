@@ -22,16 +22,33 @@ class NotificationsRepository {
         .toList();
   }
 
-  // ── Recent 5 for the bell dropdown (direct DB query) ─────────────────────
+  // ── Recent notifications for the bell dropdown ───────────────────────────
+  //
+  // Returns only:
+  //   • unread notifications (regardless of age), OR
+  //   • notifications created today (regardless of read status).
+  //
+  // Birthday or other info notifications from previous days will NOT appear
+  // here once they are read. They remain visible on the full /notifications
+  // page.
 
   Future<List<AppNotification>> fetchRecentNotifications(
       String userId) async {
+    final now = DateTime.now();
+    // Local "today" start — YYYY-MM-DD.  PostgREST compares created_at
+    // (timestamptz) against this date string using >= operator.
+    final todayStr =
+        '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+
     final data = await _client
         .from('notifications')
         .select()
         .eq('recipient_id', userId)
+        .or('is_read.eq.false,created_at.gte.$todayStr')
         .order('created_at', ascending: false)
-        .limit(5);
+        .limit(20);
     return (data as List)
         .cast<Map<String, dynamic>>()
         .map(AppNotification.fromMap)
@@ -66,10 +83,18 @@ class NotificationsRepository {
         .eq('is_read', false);
   }
 
-  // ── Birthday notifications ────────────────────────────────────────────────
+  // ── Birthday notifications (server-side only) ────────────────────────────
   //
   // Idempotent: one notification per (recipient_id, related_child_id) per day.
-  // Not called from the app UI — invoke from a server function or admin tool.
+  //
+  // IMPORTANT: Do NOT call this from any Flutter widget build() method or from
+  // any provider that runs on dashboard load.  It must only be triggered from
+  // a server-side function (e.g., a Supabase Edge Function / pg_cron job) or
+  // from a dedicated admin action — never on every app session start.
+  //
+  // The recent-notifications dropdown already filters by "unread OR today",
+  // so birthday notifications automatically disappear from the dropdown the
+  // day after they were sent once they are marked read.
 
   Future<void> insertBirthdayNotifications() async {
     final now = DateTime.now();
