@@ -13,6 +13,13 @@ class TrainerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isAdmin = trainer.role == 'admin';
+    final accent = isAdmin ? AppColors.purple : AppColors.info;
+
+    // Two-letter initials: first char of first name + first char of last name.
+    final initials = [
+      trainer.firstName.isNotEmpty ? trainer.firstName[0] : '',
+      trainer.lastName.isNotEmpty ? trainer.lastName[0] : '',
+    ].join().toUpperCase();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -33,21 +40,23 @@ class TrainerCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // ── Avatar ──────────────────────────────────────────
+                // ── Avatar with initials ─────────────────────────────
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: (isAdmin ? AppColors.purple : AppColors.info)
-                        .withValues(alpha: 0.12),
+                    color: accent.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    isAdmin
-                        ? Icons.admin_panel_settings_outlined
-                        : Icons.person_outlined,
-                    size: 20,
-                    color: isAdmin ? AppColors.purple : AppColors.info,
+                  alignment: Alignment.center,
+                  child: Text(
+                    initials,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -63,15 +72,12 @@ class TrainerCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: (isAdmin
-                                  ? AppColors.purple
-                                  : AppColors.info)
-                              .withValues(alpha: 0.1),
+                          color: accent.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -79,9 +85,7 @@ class TrainerCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: isAdmin
-                                ? AppColors.purple
-                                : AppColors.info,
+                            color: accent,
                           ),
                         ),
                       ),
@@ -89,7 +93,7 @@ class TrainerCard extends StatelessWidget {
                   ),
                 ),
 
-                // ── Workshops count ──────────────────────────────────
+                // ── Active series count ──────────────────────────────
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -101,7 +105,7 @@ class TrainerCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'ateliere',
+                      'serii active',
                       style: TextStyle(
                         fontSize: 11,
                         color: theme.colorScheme.outline,

@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/utils/weekday_utils.dart';
 import '../domain/series_enrolled_child.dart';
 import '../domain/workshop_series.dart';
 
@@ -19,11 +20,18 @@ class EnrollmentRepository {
         .select(
             'id, title, workshop_type, day_of_week, start_time, end_time, '
             'trainer_id, notes, is_active')
-        .eq('is_active', true)
-        .order('title');
-    return (data as List)
+        .eq('is_active', true);
+    return ((data as List)
         .map((e) => WorkshopSeries.fromMap(e as Map<String, dynamic>))
-        .toList();
+        .toList()
+      ..sort((a, b) => compareByWeekday(
+            dayA: a.dayOfWeek,
+            dayB: b.dayOfWeek,
+            timeA: a.startTime,
+            timeB: b.startTime,
+            titleA: a.title,
+            titleB: b.title,
+          )));
   }
 
   Future<WorkshopSeries?> fetchWorkshopSeriesById(String id) async {
@@ -53,7 +61,7 @@ class EnrollmentRepository {
         .eq('child_id', childId)
         .eq('is_active', true);
 
-    return (data as List)
+    return ((data as List)
         .map((e) {
           final ws =
               (e as Map<String, dynamic>)['workshop_series'];
@@ -61,7 +69,15 @@ class EnrollmentRepository {
           return WorkshopSeries.fromMap(ws as Map<String, dynamic>);
         })
         .whereType<WorkshopSeries>()
-        .toList();
+        .toList()
+      ..sort((a, b) => compareByWeekday(
+            dayA: a.dayOfWeek,
+            dayB: b.dayOfWeek,
+            timeA: a.startTime,
+            timeB: b.startTime,
+            titleA: a.title,
+            titleB: b.title,
+          )));
   }
 
   /// Active workshop series that [childId] is NOT yet enrolled in.
@@ -95,11 +111,19 @@ class EnrollmentRepository {
         .eq('is_active', true)
         .order('title');
 
-    return (all as List)
+    return ((all as List)
         .cast<Map<String, dynamic>>()
         .where((s) => !assignedIds.contains(s['id'] as String))
         .map((s) => WorkshopSeries.fromMap(s))
-        .toList();
+        .toList()
+      ..sort((a, b) => compareByWeekday(
+            dayA: a.dayOfWeek,
+            dayB: b.dayOfWeek,
+            timeA: a.startTime,
+            timeB: b.startTime,
+            titleA: a.title,
+            titleB: b.title,
+          )));
   }
 
   // ── Series → Children ─────────────────────────────────────────────────────

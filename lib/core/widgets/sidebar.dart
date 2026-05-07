@@ -35,16 +35,16 @@ class AppSidebar extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 40,
+                  height: 40,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(11),
                   ),
                   child: Image.asset(
                     'assets/images/app_logo.png',
-                    width: 36,
-                    height: 36,
+                    width: 40,
+                    height: 40,
                     fit: BoxFit.contain,
                   ),
                 ),
@@ -58,7 +58,7 @@ class AppSidebar extends StatelessWidget {
                         style: TextStyle(
                           color: titleColor,
                           fontWeight: FontWeight.w700,
-                          fontSize: 14,
+                          fontSize: 16,
                           letterSpacing: 0.1,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -177,7 +177,7 @@ class _SideNavItem extends StatelessWidget {
           onTap: () => context.go(path),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               color: selected ? activeBg : null,
@@ -186,7 +186,7 @@ class _SideNavItem extends StatelessWidget {
               children: [
                 Icon(
                   icon,
-                  size: 19,
+                  size: 22,
                   color: selected ? activeAccent : inactiveColor,
                 ),
                 const SizedBox(width: 12),

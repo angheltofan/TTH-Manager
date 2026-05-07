@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
+import '../../../core/utils/weekday_utils.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../trainers/providers/trainers_providers.dart';
 import '../data/child_attendance_repository.dart';
@@ -78,23 +79,40 @@ final filteredChildrenProvider =
 
 // ── Derived: unique workshops for filter dropdown ────────────────────────────
 
-// Workshop options deduplicated by title — multiple scheduled rows can share
-// the same title (different weeks of the same recurring series). The key is
-// the title itself so the filter comparison is also title-based.
+// Workshop options deduplicated by title, sorted by weekday order (Mon→Sun)
+// then start_time then title. Multiple scheduled rows can share the same title
+// (different weeks of the same recurring series). The key is the title itself.
 final childrenWorkshopOptionsProvider =
     Provider<List<MapEntry<String, String>>>((ref) {
   final list = ref.watch(allChildrenProvider).valueOrNull ?? [];
-  final seen = <String>{};
-  final result = <MapEntry<String, String>>[];
+
+  // Collect the first-seen dayOfWeek + startTime for each unique title so we
+  // can sort by real week order instead of alphabetically.
+  final titleMeta = <String, ({String day, String time})>{};
   for (final c in list) {
     for (final w in c.workshops) {
-      if (seen.add(w.title)) {
-        result.add(MapEntry(w.title, w.title));
-      }
+      titleMeta.putIfAbsent(
+        w.title,
+        () => (day: w.dayOfWeek, time: w.startTime),
+      );
     }
   }
-  result.sort((a, b) => a.value.compareTo(b.value));
-  return result;
+
+  final titles = titleMeta.keys.toList()
+    ..sort((a, b) {
+      final ma = titleMeta[a]!;
+      final mb = titleMeta[b]!;
+      return compareByWeekday(
+        dayA: ma.day,
+        dayB: mb.day,
+        timeA: ma.time,
+        timeB: mb.time,
+        titleA: a,
+        titleB: b,
+      );
+    });
+
+  return titles.map((t) => MapEntry(t, t)).toList();
 });
 
 // ── Derived: trainer list for filter dropdown ─────────────────────────────────
