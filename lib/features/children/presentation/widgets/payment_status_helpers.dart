@@ -13,6 +13,7 @@ class CycleGroup {
     this.periodEnd,
     this.paidAt,
     this.confirmedByName,
+    this.paymentMethod,
     required this.rows,
   });
 
@@ -22,39 +23,93 @@ class CycleGroup {
   final DateTime? periodEnd;
   final DateTime? paidAt;
   final String? confirmedByName;
+
+  /// Resolved display method: 'POS', 'OP', or null.
+  /// Derived from payment_cycles.payment_method or fallback from notes.
+  final String? paymentMethod;
   final List<ChildPaymentStatusRow> rows;
 }
 
 // ── Confirmed badge ───────────────────────────────────────────────────────────
 
 class ConfirmedBadge extends StatelessWidget {
-  const ConfirmedBadge({super.key});
+  const ConfirmedBadge({super.key, this.paymentMethod});
+
+  /// Display method string — 'POS', 'OP', or null.
+  final String? paymentMethod;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.30)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_outline_rounded,
+                    size: 14, color: AppColors.success),
+                SizedBox(width: 6),
+                Text(
+                  'Plată confirmată',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.success,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (paymentMethod != null) ...[  
+            const SizedBox(width: 6),
+            _MethodBadge(method: paymentMethod!),
+          ],
+        ],
+      );
+}
+
+// ── Payment method badge ──────────────────────────────────────────────────────
+
+class _MethodBadge extends StatelessWidget {
+  const _MethodBadge({required this.method});
+  final String method; // 'POS' or 'OP'
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: AppColors.success.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.success.withValues(alpha: 0.30)),
+          color: AppColors.purple.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(6),
+          border:
+              Border.all(color: AppColors.purple.withValues(alpha: 0.30)),
         ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle_outline_rounded,
-                size: 14, color: AppColors.success),
-            SizedBox(width: 6),
-            Text(
-              'Plată confirmată',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.success,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+        child: Text(
+          method,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.purple,
+          ),
         ),
       );
+}
+
+/// Public re-export so other widgets can also render a method badge.
+class PaymentMethodBadge extends StatelessWidget {
+  const PaymentMethodBadge({super.key, required this.method});
+  final String method;
+
+  @override
+  Widget build(BuildContext context) => _MethodBadge(method: method);
 }
 
 // ── Summary banner ────────────────────────────────────────────────────────────

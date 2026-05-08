@@ -22,7 +22,7 @@ class ChildDetailsRepository {
         .from('children')
         .select(
             'id, first_name, last_name, birth_date, '
-            'parent_phone, notes, is_active')
+            'parent_name, parent_phone, notes, is_active')
         .eq('id', childId)
         .maybeSingle();
     return data != null ? ChildModel.fromMap(data) : null;
@@ -121,6 +121,7 @@ class ChildDetailsRepository {
   Future<void> confirmPayment({
     required String cycleId,
     required String userId,
+    required String paymentMethod,
     String notes = '',
   }) async {
     await _client
@@ -129,6 +130,7 @@ class ChildDetailsRepository {
           'status': 'paid',
           'paid_at': DateTime.now().toUtc().toIso8601String(),
           'confirmed_by': userId,
+          'payment_method': paymentMethod, // 'pos' or 'op'
           if (notes.isNotEmpty) 'notes': notes,
         })
         .eq('id', cycleId);
@@ -141,6 +143,7 @@ class ChildDetailsRepository {
   Future<void> markAdvancePayment({
     required String childId,
     required String currentUserId,
+    required String paymentMethod,
     String notes = '',
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
@@ -157,6 +160,7 @@ class ChildDetailsRepository {
       await _client.from('payment_cycles').update({
         'paid_at': now,
         'confirmed_by': currentUserId,
+        'payment_method': paymentMethod, // 'pos' or 'op'
         if (notes.isNotEmpty) 'notes': notes,
       }).eq('id', existing['id'] as String);
     } else {
@@ -165,6 +169,7 @@ class ChildDetailsRepository {
         'status': 'paid_advance',
         'paid_at': now,
         'confirmed_by': currentUserId,
+        'payment_method': paymentMethod, // 'pos' or 'op'
         if (notes.isNotEmpty) 'notes': notes,
       });
     }

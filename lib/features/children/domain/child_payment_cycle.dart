@@ -9,6 +9,8 @@ class ChildPaymentCycle {
     this.status,
     this.paidAt,
     this.confirmedBy,
+    this.paymentMethod,
+    this.notes,
     this.createdAt,
   });
 
@@ -22,6 +24,12 @@ class ChildPaymentCycle {
   final String? status;
   final DateTime? paidAt;
   final String? confirmedBy;
+
+  /// 'pos' or 'op', or null for legacy records.
+  final String? paymentMethod;
+
+  /// Optional free-text note — used as fallback to infer method for old records.
+  final String? notes;
   final DateTime? createdAt;
 
   factory ChildPaymentCycle.fromMap(Map<String, dynamic> map) =>
@@ -40,6 +48,8 @@ class ChildPaymentCycle {
             ? DateTime.tryParse(map['paid_at'] as String)
             : null,
         confirmedBy: map['confirmed_by'] as String?,
+        paymentMethod: map['payment_method'] as String?,
+        notes: map['notes'] as String?,
         createdAt: map['created_at'] != null
             ? DateTime.tryParse(map['created_at'] as String)
             : null,

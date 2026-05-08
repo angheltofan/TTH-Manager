@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/loading_state.dart';
+import '../../domain/child_payment_cycle.dart';
 import '../../domain/child_payment_status_row.dart';
 import '../../providers/child_details_providers.dart';
 import 'active_cycle_section.dart';
@@ -50,7 +51,7 @@ class PaymentStatusCard extends ConsumerWidget {
     final allPaymentRows = paymentRowsAsync.valueOrNull ?? [];
     final currentRows = currentRowsAsync.valueOrNull ?? [];
     final paymentCycles = paymentCyclesAsync.valueOrNull ?? [];
-    final groups = _buildGroups(allPaymentRows);
+    final groups = _buildGroups(allPaymentRows, paymentCycles);
 
     final sortedAsc = [...groups]
       ..sort((a, b) => (a.periodStart ?? DateTime(0))
@@ -67,6 +68,14 @@ class PaymentStatusCard extends ConsumerWidget {
     final isAlreadyConfirmed =
         paymentCycles.any((c) => c.status == 'paid_advance') ||
             groups.any((g) => g.cycleStatus == 'paid_advance');
+
+    // Resolve the method for an already-confirmed advance cycle.
+    final advanceCycle = paymentCycles
+        .where((c) => c.status == 'paid_advance')
+        .firstOrNull;
+    final confirmedPaymentMethod = advanceCycle != null
+        ? _resolveMethod(advanceCycle.paymentMethod, advanceCycle.notes)
+        : null;
 
     final dueGroup = dueGroups.isNotEmpty ? dueGroups.first : null;
     final showActiveCycle = currentRows.isNotEmpty;
@@ -86,8 +95,7 @@ class PaymentStatusCard extends ConsumerWidget {
               childId: childId,
               currentRows: currentRows,
               dueGroup: dueGroup,
-              isConfirmed: isAlreadyConfirmed,
-            ),
+              isConfirmed: isAlreadyConfirmed,              confirmedPaymentMethod: confirmedPaymentMethod,            ),
             if (visible.isNotEmpty)
               Divider(
                 height: 24,
@@ -121,6 +129,7 @@ class PaymentStatusCard extends ConsumerWidget {
                 periodEnd: g.periodEnd,
                 paidAt: g.paidAt,
                 confirmedByName: g.confirmedByName,
+                paymentMethod: g.paymentMethod,
                 rows: g.rows,
                 onConfirmPayment:
                     (g.cycleStatus == 'due' || g.cycleStatus == 'overdue')
@@ -146,6 +155,7 @@ class PaymentStatusCard extends ConsumerWidget {
         await ref.read(childDetailsRepositoryProvider).confirmPayment(
           cycleId: cycleId,
           userId: authUser.id,
+          paymentMethod: method.toLowerCase(), // 'pos' or 'op'
           notes: 'Plată confirmată prin $method.',
         );
       },
@@ -158,7 +168,10 @@ class PaymentStatusCard extends ConsumerWidget {
     ref.invalidate(childCurrentStatusProvider(childId));
   }
 
-  List<CycleGroup> _buildGroups(List<ChildPaymentStatusRow> rows) {
+  List<CycleGroup> _buildGroups(
+    List<ChildPaymentStatusRow> rows,
+    List<ChildPaymentCycle> cycles,
+  ) {
     final Map<String, List<ChildPaymentStatusRow>> map = {};
     final Map<String, ChildPaymentStatusRow> meta = {};
 
@@ -169,6 +182,9 @@ class PaymentStatusCard extends ConsumerWidget {
       meta.putIfAbsent(id, () => row);
     }
 
+    // Build a lookup of cycle data for paymentMethod / notes.
+    final cycleData = {for (final c in cycles) c.id: c};
+
     return map.entries.map((e) {
       final m = meta[e.key]!;
       final sorted = (e.value
@@ -176,6 +192,7 @@ class PaymentStatusCard extends ConsumerWidget {
                 .compareTo(b.workshopDate ?? DateTime(0))))
           .where((r) => r.workshopDate != null)
           .toList();
+      final cycle = cycleData[e.key];
       return CycleGroup(
         cycleId: e.key,
         cycleStatus: m.cycleStatus,
@@ -183,9 +200,25 @@ class PaymentStatusCard extends ConsumerWidget {
         periodEnd: m.periodEnd,
         paidAt: m.paidAt,
         confirmedByName: m.confirmedByName,
+        paymentMethod:
+            _resolveMethod(cycle?.paymentMethod, cycle?.notes),
         rows: sorted,
       );
     }).toList();
+  }
+
+  /// Derives a display method label from the stored column or, as fallback,
+  /// the legacy notes string written by older versions of the app.
+  static String? _resolveMethod(String? paymentMethod, String? notes) {
+    if (paymentMethod != null && paymentMethod.isNotEmpty) {
+      return paymentMethod.toUpperCase(); // 'pos' → 'POS', 'op' → 'OP'
+    }
+    if (notes == null) return null;
+    final upper = notes.toUpperCase();
+    if (upper.contains('POS')) return 'POS';
+    // 'OP' was written as "... prin OP." — avoid matching it inside longer words.
+    if (RegExp(r'\bOP\b').hasMatch(upper)) return 'OP';
+    return null;
   }
 
   List<CycleGroup> _buildVisible(List<CycleGroup> groups,

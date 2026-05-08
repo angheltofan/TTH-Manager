@@ -16,12 +16,16 @@ class ActiveCycleSection extends ConsumerStatefulWidget {
     required this.currentRows,
     required this.dueGroup,
     required this.isConfirmed,
+    this.confirmedPaymentMethod,
   });
 
   final String childId;
   final List<ChildCurrentStatusRow> currentRows;
   final CycleGroup? dueGroup;
   final bool isConfirmed;
+
+  /// Display method for an already-confirmed advance payment: 'POS', 'OP', null.
+  final String? confirmedPaymentMethod;
 
   @override
   ConsumerState<ActiveCycleSection> createState() => _ActiveCycleSectionState();
@@ -30,7 +34,13 @@ class ActiveCycleSection extends ConsumerStatefulWidget {
 class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
   bool _confirmedLocally = false;
 
+  /// Method label tracked after local confirmation: 'POS', 'OP', or null.
+  String? _confirmedMethod;
+
   bool get _showAsConfirmed => widget.isConfirmed || _confirmedLocally;
+
+  String? get _effectiveMethod =>
+      _confirmedLocally ? _confirmedMethod : widget.confirmedPaymentMethod;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +54,7 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
     );
 
     final actionWidget = _showAsConfirmed
-        ? const ConfirmedBadge()
+        ? ConfirmedBadge(paymentMethod: _effectiveMethod)
         : FilledButton(
             onPressed: _onConfirm,
             style: FilledButton.styleFrom(
@@ -115,17 +125,20 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
     final result = await showPaymentMethodDialog(
       context,
       onConfirm: (method) async {
+        final methodLower = method.toLowerCase(); // 'pos' or 'op'
         final notes = 'Plată confirmată prin $method.';
         if (isDue) {
           await repo.confirmPayment(
             cycleId: widget.dueGroup!.cycleId,
             userId: authUser.id,
+            paymentMethod: methodLower,
             notes: notes,
           );
         } else {
           await repo.markAdvancePayment(
             childId: widget.childId,
             currentUserId: authUser.id,
+            paymentMethod: methodLower,
             notes: notes,
           );
         }
@@ -142,7 +155,12 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
     } else {
       ref.invalidate(childPaymentStatusRowsProvider(widget.childId));
       ref.invalidate(childPaymentCyclesNewProvider(widget.childId));
-      if (mounted) setState(() => _confirmedLocally = true);
+      if (mounted) {
+        setState(() {
+          _confirmedLocally = true;
+          _confirmedMethod = result; // 'POS' or 'OP' (returned by dialog)
+        });
+      }
     }
   }
 }

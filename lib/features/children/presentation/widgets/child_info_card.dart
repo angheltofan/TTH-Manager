@@ -93,10 +93,18 @@ class ChildInfoCard extends StatelessWidget {
                   label: 'Vârstă',
                   value: '${child.age} ani',
                 ),
+              _InfoChip(
+                icon: Icons.supervisor_account_outlined,
+                label: 'Nume părinte',
+                value: (child.parentName != null &&
+                        child.parentName!.isNotEmpty)
+                    ? child.parentName!
+                    : '—',
+              ),
               if (child.parentPhone != null)
                 _InfoChip(
                   icon: Icons.phone_outlined,
-                  label: 'Telefon contact',
+                  label: 'Telefon părinte',
                   value: child.parentPhone!,
                 ),
               if (child.notes != null && child.notes!.isNotEmpty)

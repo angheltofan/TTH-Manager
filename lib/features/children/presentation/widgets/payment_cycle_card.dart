@@ -4,6 +4,7 @@ import '../../../../core/utils/date_utils.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../domain/child_payment_status_row.dart';
 import 'attendance_row_item.dart';
+import 'payment_status_helpers.dart';
 
 /// Renders one payment cycle with its attendance rows.
 class PaymentCycleCard extends StatelessWidget {
@@ -16,6 +17,7 @@ class PaymentCycleCard extends StatelessWidget {
     this.periodEnd,
     this.paidAt,
     this.confirmedByName,
+    this.paymentMethod,
     required this.rows,
     this.onConfirmPayment,
   });
@@ -27,6 +29,9 @@ class PaymentCycleCard extends StatelessWidget {
   final DateTime? periodEnd;
   final DateTime? paidAt;
   final String? confirmedByName;
+
+  /// Display label — 'POS', 'OP', or null. Shown when cycle is paid.
+  final String? paymentMethod;
   final List<ChildPaymentStatusRow> rows;
   final Future<void> Function()? onConfirmPayment;
 
@@ -43,6 +48,10 @@ class PaymentCycleCard extends StatelessWidget {
       'cancelled' => (const Color(0xFF94A3B8), 'Anulat'),
       _ => (const Color(0xFF94A3B8), cycleStatus ?? '—'),
     };
+
+    // Show method badge only for paid/paid_advance cycles.
+    final showMethod = (cycleStatus == 'paid' || cycleStatus == 'paid_advance') &&
+        paymentMethod != null;
 
     final cycleTitle =
         cycleNumber != null ? 'Ciclu de plată #$cycleNumber' : 'Ciclu de plată';
@@ -63,7 +72,7 @@ class PaymentCycleCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title + status badge (+ confirm button on desktop)
+                // Title + status badge (+ method badge + confirm button)
                 if (isMobile) ...[
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
@@ -76,6 +85,7 @@ class PaymentCycleCard extends StatelessWidget {
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       _StatusPill(label: statusLabel, color: statusColor),
+                      if (showMethod) PaymentMethodBadge(method: paymentMethod!),
                       if (onConfirmPayment != null)
                         _ConfirmButton(onConfirm: onConfirmPayment!),
                     ],
@@ -93,6 +103,10 @@ class PaymentCycleCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             _StatusPill(label: statusLabel, color: statusColor),
+                            if (showMethod) ...[
+                              const SizedBox(width: 6),
+                              PaymentMethodBadge(method: paymentMethod!),
+                            ],
                           ],
                         ),
                       ),
