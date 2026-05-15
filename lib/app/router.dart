@@ -19,6 +19,9 @@ import '../features/notifications/presentation/notifications_page.dart';
 import '../features/trainers/presentation/trainer_details_page.dart';
 import '../features/trainers/presentation/trainers_page.dart';
 import '../features/workshops/presentation/workshop_details_page.dart';
+import '../features/demo_workshops/presentation/demo_workshop_details_page.dart';
+import '../features/demo_workshops/presentation/demo_workshop_form_page.dart';
+import '../features/team_chat/presentation/team_chat_page.dart';
 import '../features/workshops/presentation/workshop_form_page.dart';
 import '../features/workshops/presentation/workshop_series_page.dart';
 
@@ -143,6 +146,20 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/notifications',
             builder: (context, state) => const NotificationsPage(),
+          ),
+          GoRoute(
+            path: '/demo-workshops/new',
+            builder: (context, state) => const DemoWorkshopFormPage(),
+          ),
+          GoRoute(
+            path: '/demo-workshops/:id',
+            builder: (context, state) => DemoWorkshopDetailsPage(
+              demoId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/team-chat',
+            builder: (context, state) => const TeamChatPage(),
           ),
         ],
       ),

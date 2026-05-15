@@ -1,11 +1,13 @@
 ﻿import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../dashboard/providers/dashboard_providers.dart';
+import '../providers/enrollment_providers.dart';
 import '../providers/workshops_providers.dart';
 import 'workshop_basic_info_section.dart';
 import 'workshop_form_actions.dart';
@@ -178,8 +180,18 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
       }
 
       ref.invalidate(allScheduledWorkshopsProvider);
+      ref.invalidate(todayWorkshopsProvider);
       ref.invalidate(workshopsListProvider);
-      if (_isEditing) ref.invalidate(workshopByIdProvider(widget.workshopId!));
+      ref.invalidate(activeWorkshopSeriesProvider);
+      ref.invalidate(dashboardStatsProvider);
+      if (_isEditing) {
+        ref.invalidate(workshopByIdProvider(widget.workshopId!));
+        ref.invalidate(workshopDetailsProvider(widget.workshopId!));
+        if (_recurringSeriesId != null) {
+          ref.invalidate(workshopSeriesByIdProvider(_recurringSeriesId!));
+        }
+      }
+      if (kDebugMode) debugPrint('[Workshop] providers invalidated after save');
 
       if (mounted) {
         if (_isEditing) {

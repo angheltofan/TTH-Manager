@@ -24,6 +24,8 @@ class AppColors {
   static const Color info = Color(0xFF3B82F6);
   static const Color teal = Color(0xFF14B8A6);
   static const Color muted = Color(0xFF94A3B8);
+  /// Orange used for DEMO workshop badges.
+  static const Color demoBadge = Color(0xFFF97316);
 
   // ── Light palette ───────────────────────────────────────────────────────────
   static const Color bgLight = Color(0xFFF5F8FC);

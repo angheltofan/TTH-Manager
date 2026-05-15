@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
 import '../data/enrollment_repository.dart';
@@ -61,4 +63,37 @@ final availableChildrenForSeriesProvider =
   return ref
       .watch(enrollmentRepositoryProvider)
       .fetchAvailableChildrenForSeries(seriesId);
+});
+
+// ── Global realtime for workshop_enrollments ─────────────────────────────
+
+/// Watches [workshop_enrollments] for changes and invalidates series
+/// providers so lists update on other devices.
+/// Watched by [AppShell] while the user is logged in.
+final enrollmentRealtimeProvider = Provider.autoDispose<void>((ref) {
+  final client = ref.watch(supabaseClientProvider);
+  if (kDebugMode) debugPrint('[RT] workshop_enrollments: subscribing');
+
+  final channel = client
+      .channel('global_workshop_enrollments')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'workshop_enrollments',
+        callback: (payload) {
+          if (kDebugMode) {
+            debugPrint('[RT] workshop_enrollments → ${payload.eventType}');
+          }
+          ref.invalidate(activeWorkshopSeriesProvider);
+          if (kDebugMode) {
+            debugPrint('[RT] activeWorkshopSeriesProvider invalidated');
+          }
+        },
+      )
+      .subscribe();
+
+  ref.onDispose(() {
+    if (kDebugMode) debugPrint('[RT] workshop_enrollments: removing channel');
+    client.removeChannel(channel);
+  });
 });

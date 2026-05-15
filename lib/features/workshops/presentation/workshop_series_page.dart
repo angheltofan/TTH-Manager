@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,7 +8,10 @@ import '../../../core/utils/date_utils.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../children/providers/children_providers.dart';
+import '../../dashboard/providers/dashboard_providers.dart';
 import '../providers/enrollment_providers.dart';
+import '../providers/workshops_providers.dart';
 import 'widgets/enroll_children_dialog.dart';
 
 class WorkshopSeriesPage extends ConsumerWidget {
@@ -35,6 +39,29 @@ class WorkshopSeriesPage extends ConsumerWidget {
               context.canPop() ? context.pop() : context.go('/dashboard'),
         ),
         title: const Text('Serie atelier'),
+        actions: [
+          if (isAdmin)
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'deactivate') {
+                  _deactivateSeries(context, ref);
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'deactivate',
+                  child: ListTile(
+                    leading: Icon(Icons.block_outlined,
+                        color: AppColors.error),
+                    title: Text('Dezactivează atelierul',
+                        style: TextStyle(color: AppColors.error)),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
       body: seriesAsync.when(
         loading: () => const AppLoading(),
@@ -243,6 +270,9 @@ class WorkshopSeriesPage extends ConsumerWidget {
     );
     ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
     ref.invalidate(availableChildrenForSeriesProvider(seriesId));
+    ref.invalidate(allChildrenProvider);
+    ref.invalidate(activeWorkshopSeriesProvider);
+    if (kDebugMode) debugPrint('[Series] enrollment done, providers invalidated');
   }
 
   Future<void> _removeChild(
@@ -272,12 +302,72 @@ class WorkshopSeriesPage extends ConsumerWidget {
           .read(enrollmentRepositoryProvider)
           .removeChildFromWorkshopSeries(childId, seriesId);
       ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
+      ref.invalidate(availableChildrenForSeriesProvider(seriesId));
+      ref.invalidate(childWorkshopSeriesProvider(childId));
+      ref.invalidate(availableWorkshopSeriesForChildProvider(childId));
+      ref.invalidate(allChildrenProvider);
+      ref.invalidate(activeWorkshopSeriesProvider);
+      if (kDebugMode) {
+        debugPrint('[Series] child $childId removed from series $seriesId');
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content:
                   Text('Copilul a fost eliminat din serie.')),
         );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Eroare: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deactivateSeries(
+      BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Dezactivează atelierul'),
+        content: const Text(
+          'Atelierul și sesiunile viitoare vor fi dezactivate. '
+          'Datele existente (prezență, înscrieri) sunt păstrate.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Anulează'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Dezactivează'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await ref
+          .read(enrollmentRepositoryProvider)
+          .deactivateSeries(seriesId);
+      ref.invalidate(workshopSeriesByIdProvider(seriesId));
+      ref.invalidate(activeWorkshopSeriesProvider);
+      ref.invalidate(allScheduledWorkshopsProvider);
+      ref.invalidate(todayWorkshopsProvider);
+      ref.invalidate(workshopsListProvider);
+      ref.invalidate(allChildrenProvider);
+      ref.invalidate(dashboardStatsProvider);
+      if (kDebugMode) debugPrint('[Series] deactivated $seriesId');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Atelierul a fost dezactivat.')),
+        );
+        context.canPop() ? context.pop() : context.go('/dashboard');
       }
     } catch (e) {
       if (context.mounted) {

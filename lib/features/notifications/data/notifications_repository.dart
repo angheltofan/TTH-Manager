@@ -49,10 +49,28 @@ class NotificationsRepository {
         .or('is_read.eq.false,created_at.gte.$todayStr')
         .order('created_at', ascending: false)
         .limit(20);
-    return (data as List)
+
+    final all = (data as List)
         .cast<Map<String, dynamic>>()
         .map(AppNotification.fromMap)
         .toList();
+
+    // Birthday notifications are only relevant on the day they were created.
+    // Filter out any birthday notification whose creation date is before today,
+    // even if it is unread (e.g. was generated yesterday and never opened).
+    final today = DateTime(now.year, now.month, now.day);
+    return all.where((n) {
+      final isBirthday = n.title.toLowerCase().startsWith('zi de na');
+      if (isBirthday) {
+        final createdAt = n.createdAt;
+        if (createdAt == null) return false;
+        final createdLocal = createdAt.toLocal();
+        final createdDay = DateTime(
+            createdLocal.year, createdLocal.month, createdLocal.day);
+        return !createdDay.isBefore(today);
+      }
+      return true;
+    }).toList();
   }
 
   // ── Unread count ──────────────────────────────────────────────────────────
@@ -83,90 +101,37 @@ class NotificationsRepository {
         .eq('is_read', false);
   }
 
-  // ── Birthday notifications (server-side only) ────────────────────────────
+  // ── Daily notification generation (RPC, once per session) ──────────────────
   //
-  // Idempotent: one notification per (recipient_id, related_child_id) per day.
+  // Calls the server-side `generate_daily_notifications()` SQL function which:
+  //   • Inserts child birthday notifications for all admin/trainer recipients
+  //   • Avoids duplicates with NOT EXISTS checks
   //
-  // IMPORTANT: Do NOT call this from any Flutter widget build() method or from
-  // any provider that runs on dashboard load.  It must only be triggered from
-  // a server-side function (e.g., a Supabase Edge Function / pg_cron job) or
-  // from a dedicated admin action — never on every app session start.
+  // SQL to create the function (run once in Supabase SQL editor):
   //
-  // The recent-notifications dropdown already filters by "unread OR today",
-  // so birthday notifications automatically disappear from the dropdown the
-  // day after they were sent once they are marked read.
+  //   CREATE OR REPLACE FUNCTION generate_daily_notifications()
+  //   RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+  //   DECLARE today date := current_date; BEGIN
+  //     INSERT INTO notifications (title, body, type, recipient_id, related_child_id)
+  //     SELECT
+  //       'Zi de naştere',
+  //       c.first_name || ' ' || c.last_name || ' îşi serbează ziua astăzi!',
+  //       'info', p.id, c.id
+  //     FROM children c CROSS JOIN profiles p
+  //     WHERE c.is_active = true
+  //       AND EXTRACT(MONTH FROM c.birth_date) = EXTRACT(MONTH FROM today)
+  //       AND EXTRACT(DAY   FROM c.birth_date) = EXTRACT(DAY   FROM today)
+  //       AND p.role IN ('admin', 'trainer')
+  //       AND NOT EXISTS (
+  //         SELECT 1 FROM notifications n
+  //         WHERE n.recipient_id = p.id
+  //           AND n.related_child_id = c.id
+  //           AND n.type = 'info'
+  //           AND DATE(n.created_at) = today
+  //       );
+  //   END; $$;
 
-  Future<void> insertBirthdayNotifications() async {
-    final now = DateTime.now();
-    // ISO-8601 date string: YYYY-MM-DD — used as gte filter (start of today).
-    final todayStr =
-        '${now.year.toString().padLeft(4, '0')}-'
-        '${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}';
-
-    // 1. Children whose birthday falls today (month + day match).
-    final allChildren = await _client
-        .from('children')
-        .select('id, first_name, last_name, birth_date')
-        .eq('is_active', true);
-
-    final birthdayChildren = (allChildren as List)
-        .cast<Map<String, dynamic>>()
-        .where((c) {
-          final dt = DateTime.tryParse((c['birth_date'] as String?) ?? '');
-          return dt != null && dt.month == now.month && dt.day == now.day;
-        })
-        .toList();
-
-    if (birthdayChildren.isEmpty) return;
-
-    // 2. All admin recipients.
-    final admins = await _client
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin');
-
-    final adminIds = (admins as List)
-        .cast<Map<String, dynamic>>()
-        .map((a) => a['id'] as String)
-        .toList();
-
-    if (adminIds.isEmpty) return;
-
-    // 3. Already-sent today — dedup key: recipient_id|related_child_id
-    final existing = await _client
-        .from('notifications')
-        .select('recipient_id, related_child_id')
-        .eq('type', 'info')
-        .not('related_child_id', 'is', null)
-        .gte('created_at', todayStr);
-
-    final sent = (existing as List)
-        .cast<Map<String, dynamic>>()
-        .map((e) => '${e['recipient_id']}|${e['related_child_id']}')
-        .toSet();
-
-    // 4. Insert only missing pairs.
-    final toInsert = <Map<String, dynamic>>[];
-    for (final adminId in adminIds) {
-      for (final child in birthdayChildren) {
-        final key = '$adminId|${child['id']}';
-        if (!sent.contains(key)) {
-          final first = child['first_name'] as String? ?? '';
-          final last = child['last_name'] as String? ?? '';
-          toInsert.add({
-            'title': 'Zi de nastere',
-            'body': '$first $last isi serbeaza ziua astazi.',
-            'type': 'info',
-            'recipient_id': adminId,
-            'related_child_id': child['id'],
-          });
-        }
-      }
-    }
-
-    if (toInsert.isNotEmpty) {
-      await _client.from('notifications').insert(toInsert);
-    }
+  Future<void> generateDailyNotifications() async {
+    await _client.rpc('generate_daily_notifications');
   }
 }

@@ -58,3 +58,21 @@ final unreadCountFutureProvider = FutureProvider<int>((ref) async {
 final unreadNotificationsCountProvider = Provider<int>((ref) {
   return ref.watch(unreadCountFutureProvider).valueOrNull ?? 0;
 });
+
+// ── Daily notification generation (once per ProviderScope lifetime) ───────────
+//
+// NOT auto-disposed: this provider runs exactly once per app session.
+// Triggered from DashboardPage.initState() via ref.read(...).
+// Never call from build().
+
+final dailyNotificationsGenerationProvider = FutureProvider<void>((ref) async {
+  final user = ref.read(currentUserProvider);
+  if (user == null) return;
+  try {
+    await ref
+        .read(notificationsRepositoryProvider)
+        .generateDailyNotifications();
+  } catch (_) {
+    // Non-blocking: generation failure must not break the app.
+  }
+});

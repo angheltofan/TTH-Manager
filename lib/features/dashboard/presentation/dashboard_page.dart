@@ -1,21 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../demo_workshops/providers/demo_workshops_providers.dart';
+import '../../notifications/providers/notifications_providers.dart';
+import '../../team_chat/presentation/widgets/chat_fab.dart';
 import '../providers/dashboard_providers.dart';
 import 'widgets/all_workshops_card.dart';
 import 'widgets/dashboard_header.dart';
 import 'widgets/dashboard_stat_grid.dart';
 import 'widgets/workshops_today_section.dart';
 
-class DashboardPage extends ConsumerWidget {
+class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends ConsumerState<DashboardPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Trigger daily birthday-notification generation exactly once per session.
+    // The FutureProvider is not auto-disposed, so subsequent visits here
+    // will find it already resolved and will not call the RPC again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(dailyNotificationsGenerationProvider.future).ignore();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Show a non-blocking SnackBar if weekly workshop generation failed.
     // The workshop providers still load because the generation provider
     // never throws — it returns an error message string instead.
@@ -37,11 +58,18 @@ class DashboardPage extends ConsumerWidget {
 
     final statsAsync = ref.watch(dashboardStatsProvider);
     final workshopsAsync = ref.watch(todayWorkshopsProvider);
+    final demosAsync = ref.watch(todayDemoWorkshopsProvider);
     final currentUser = ref.watch(currentUserProvider);
+    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final isAdmin = profile?.isAdmin ?? false;
     final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
+      floatingActionButton:
+          (profile?.isAdmin == true || profile?.isTrainer == true)
+              ? const ChatFab()
+              : null,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 900;
@@ -66,9 +94,27 @@ class DashboardPage extends ConsumerWidget {
                     const SizedBox(height: 160, child: AppLoading()),
                 error: (e, _) => AppError(message: e.toString()),
                 data: (workshops) {
-                  final trailing = workshops.isNotEmpty
-                      ? WorkshopsCountBadge(count: workshops.length)
-                      : null;
+                  final demos = demosAsync.valueOrNull ?? [];
+                  final totalCount = workshops.length + demos.length;
+
+                  final trailing = Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (totalCount > 0)
+                        WorkshopsCountBadge(count: totalCount),
+                      if (isAdmin) ...[
+                        const SizedBox(width: 8),
+                        FilledButton.tonalIcon(
+                          onPressed: () => context.go('/demo-workshops/new'),
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text('Demo'),
+                          style: FilledButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
 
                   if (isWide) {
                     return SizedBox(
@@ -85,6 +131,7 @@ class DashboardPage extends ConsumerWidget {
                               expanded: true,
                               child: WorkshopsTodayList(
                                 workshops: workshops,
+                                demos: demos,
                                 currentUserId: currentUser?.id,
                                 scrollable: true,
                               ),
@@ -105,6 +152,7 @@ class DashboardPage extends ConsumerWidget {
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                         child: WorkshopsTodayList(
                           workshops: workshops,
+                          demos: demos,
                           currentUserId: currentUser?.id,
                         ),
                       ),

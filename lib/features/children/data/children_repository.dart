@@ -56,22 +56,45 @@ class ChildrenRepository {
             '*, workshop_enrollments!child_id(is_active, workshop_series!series_id(id, title, workshop_type, day_of_week, start_time, end_time, trainer_id))')
         .order('last_name');
 
+    // Query attendance table directly so we get marked_at for proper sorting.
+    // Ordered by marked_at desc from DB; we then sort client-side by
+    // (workshop_date desc, marked_at desc) and take the first per child.
     final attData = await _client
-        .from('workshop_details')
-        .select('child_id, attendance_status, workshop_date')
-        .not('attendance_status', 'is', null)
-        .order('workshop_date', ascending: false)
-        .limit(1000);
+        .from('attendance')
+        .select(
+            'child_id, status, marked_at, scheduled_workshops!scheduled_workshop_id(workshop_date)');
+
+    // Parse and sort: workshop_date desc, then marked_at desc.
+    final attRows = (attData as List).expand<_AttRow>((row) {
+      final childId = row['child_id'] as String?;
+      if (childId == null) return const [];
+      final wsData = row['scheduled_workshops'] as Map<String, dynamic>?;
+      final workshopDateStr = wsData?['workshop_date'] as String?;
+      if (workshopDateStr == null) return const [];
+      final markedAtStr = row['marked_at'] as String?;
+      return [
+        _AttRow(
+          childId: childId,
+          status: (row['status'] as String?) ?? '',
+          workshopDate: DateTime.parse(workshopDateStr),
+          markedAt: markedAtStr != null
+              ? DateTime.parse(markedAtStr)
+              : DateTime(2000),
+        ),
+      ];
+    }).toList()
+      ..sort((a, b) {
+        final d = b.workshopDate.compareTo(a.workshopDate);
+        if (d != 0) return d;
+        return b.markedAt.compareTo(a.markedAt);
+      });
 
     final lastAttMap = <String, ({String status, DateTime date})>{};
-    for (final row in (attData as List)) {
-      final childId = row['child_id'] as String?;
-      if (childId != null && !lastAttMap.containsKey(childId)) {
-        lastAttMap[childId] = (
-          status: row['attendance_status'] as String,
-          date: DateTime.parse(row['workshop_date'] as String),
-        );
-      }
+    for (final att in attRows) {
+      lastAttMap.putIfAbsent(
+        att.childId,
+        () => (status: att.status, date: att.workshopDate),
+      );
     }
 
     return (childData as List).map((e) {
@@ -142,4 +165,19 @@ class ChildrenRepository {
   Future<void> delete(String id) async {
     await _client.from('children').delete().eq('id', id);
   }
+}
+
+// ── Private helper ────────────────────────────────────────────────────────────
+
+class _AttRow {
+  const _AttRow({
+    required this.childId,
+    required this.status,
+    required this.workshopDate,
+    required this.markedAt,
+  });
+  final String childId;
+  final String status;
+  final DateTime workshopDate;
+  final DateTime markedAt;
 }

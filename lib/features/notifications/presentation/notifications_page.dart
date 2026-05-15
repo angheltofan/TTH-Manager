@@ -49,6 +49,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         .read(notificationsRepositoryProvider)
         .markAllAsRead(user.id);
     ref.invalidate(notificationsProvider);
+    ref.invalidate(recentNotificationsProvider);
     ref.invalidate(unreadCountFutureProvider);
   }
 
@@ -58,6 +59,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         .read(notificationsRepositoryProvider)
         .markAsRead(n.id);
     ref.invalidate(notificationsProvider);
+    ref.invalidate(recentNotificationsProvider);
     ref.invalidate(unreadCountFutureProvider);
   }
 

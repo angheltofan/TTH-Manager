@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../dashboard/domain/dashboard_workshop.dart';
@@ -168,7 +169,33 @@ class WorkshopsRepository {
     return ScheduledWorkshop.fromMap(data);
   }
 
+  /// Creates a scheduled workshop session.
+  ///
+  /// When [data] includes `is_recurring: true` and `recurring_series_id`,
+  /// a corresponding [workshop_series] row is upserted first so that
+  /// [workshop_enrollments.series_id] FK constraints are satisfied.
   Future<void> create(Map<String, dynamic> data) async {
+    final isRecurring = data['is_recurring'] as bool? ?? false;
+    final seriesId = data['recurring_series_id'] as String?;
+
+    if (isRecurring && seriesId != null) {
+      if (kDebugMode) {
+        debugPrint('[Workshops] upsert workshop_series id=$seriesId');
+      }
+      await _client.from('workshop_series').upsert({
+        'id': seriesId,
+        'title': data['title'],
+        'workshop_type': data['workshop_type'],
+        'day_of_week': data['day_of_week'],
+        'start_time': data['start_time'],
+        'end_time': data['end_time'],
+        'trainer_id': data['trainer_id'],
+        'notes': data['notes'],
+        'is_active': data['is_active'] ?? true,
+      });
+    }
+
+    if (kDebugMode) debugPrint('[Workshops] insert scheduled_workshop');
     await _client.from('scheduled_workshops').insert(data);
   }
 
@@ -181,18 +208,48 @@ class WorkshopsRepository {
   }
 
   /// Updates all future active workshops that share the same [recurringSeriesId],
-  /// starting from [fromDate] (inclusive). Does NOT modify attendance records.
+  /// starting from [fromDate] (inclusive). Also syncs [workshop_series] metadata
+  /// so enrollment and series pages reflect the new values.
   Future<void> updateSeries({
     required String recurringSeriesId,
     required DateTime fromDate,
     required Map<String, dynamic> data,
   }) async {
+    // Sync workshop_series row with the same fields that are relevant there.
+    const seriesKeys = [
+      'title', 'workshop_type', 'day_of_week',
+      'start_time', 'end_time', 'trainer_id', 'notes',
+    ];
+    final seriesFields = <String, dynamic>{
+      for (final k in seriesKeys)
+        if (data.containsKey(k)) k: data[k],
+    };
+    if (seriesFields.isNotEmpty) {
+      if (kDebugMode) {
+        debugPrint('[Workshops] update workshop_series id=$recurringSeriesId');
+      }
+      await _client
+          .from('workshop_series')
+          .update(seriesFields)
+          .eq('id', recurringSeriesId);
+    }
+
     await _client
         .from('scheduled_workshops')
         .update(data)
         .eq('recurring_series_id', recurringSeriesId)
         .eq('is_active', true)
         .gte('workshop_date', fromDate.toIso8601String().split('T').first);
+  }
+
+  /// Soft-cancels a single workshop session by setting [is_active] = false.
+  /// Does not delete attendance or enrollment data.
+  Future<void> cancelSession(String workshopId) async {
+    if (kDebugMode) debugPrint('[Workshops] cancelSession id=$workshopId');
+    await _client
+        .from('scheduled_workshops')
+        .update({'is_active': false})
+        .eq('id', workshopId);
   }
 
   // ── Attendance ────────────────────────────────────────────────────────────
@@ -216,6 +273,46 @@ class WorkshopsRepository {
       },
       onConflict: 'scheduled_workshop_id,child_id',
     );
+  }
+
+  /// Marks all given [childIds] as present for [workshopId].
+  /// Preserves existing observation values (does not overwrite them).
+  Future<void> markAllPresent({
+    required String workshopId,
+    required List<String> childIds,
+    required String markedBy,
+  }) async {
+    if (childIds.isEmpty) return;
+
+    // Fetch existing observations so they are preserved on upsert.
+    final existing = await _client
+        .from('attendance')
+        .select('child_id, observation')
+        .eq('scheduled_workshop_id', workshopId)
+        .inFilter('child_id', childIds);
+
+    final obsMap = <String, String?>{};
+    for (final row in (existing as List)) {
+      obsMap[row['child_id'] as String] = row['observation'] as String?;
+    }
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    final rows = childIds
+        .map((childId) => {
+              'scheduled_workshop_id': workshopId,
+              'child_id': childId,
+              'status': 'present',
+              'observation': obsMap[childId],
+              'marked_by': markedBy,
+              'marked_at': now,
+              'is_archived': false,
+            })
+        .toList();
+
+    await _client.from('attendance').upsert(
+          rows,
+          onConflict: 'scheduled_workshop_id,child_id',
+        );
   }
 }
 

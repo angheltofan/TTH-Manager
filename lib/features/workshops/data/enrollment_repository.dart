@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/weekday_utils.dart';
@@ -181,6 +182,46 @@ class EnrollmentRepository {
 
   // ── Enrollment mutations ──────────────────────────────────────────────────
 
+  /// Ensures a `workshop_series` row exists for [seriesId].
+  ///
+  /// Workshops created before the series-upsert fix may have a
+  /// `recurring_series_id` in `scheduled_workshops` but no corresponding
+  /// row in `workshop_series`. This method backfills it on demand.
+  Future<void> _ensureSeriesExists(String seriesId) async {
+    final existing = await _client
+        .from('workshop_series')
+        .select('id')
+        .eq('id', seriesId)
+        .maybeSingle();
+    if (existing != null) return;
+
+    // Fetch metadata from an existing session for this series.
+    final session = await _client
+        .from('scheduled_workshops')
+        .select(
+            'title, workshop_type, day_of_week, start_time, end_time, '
+            'trainer_id, notes, is_active')
+        .eq('recurring_series_id', seriesId)
+        .limit(1)
+        .maybeSingle();
+    if (session == null) return;
+
+    if (kDebugMode) {
+      debugPrint('[Enrollment] backfilling workshop_series id=$seriesId');
+    }
+    await _client.from('workshop_series').upsert({
+      'id': seriesId,
+      'title': session['title'],
+      'workshop_type': session['workshop_type'],
+      'day_of_week': session['day_of_week'],
+      'start_time': session['start_time'],
+      'end_time': session['end_time'],
+      'trainer_id': session['trainer_id'],
+      'notes': session['notes'],
+      'is_active': session['is_active'] ?? true,
+    });
+  }
+
   /// Enrolls a child in a workshop series.
   ///
   /// Uses INSERT first. On a unique-constraint violation (duplicate row that
@@ -189,6 +230,10 @@ class EnrollmentRepository {
   /// ON CONFLICT DO UPDATE that [upsert] requires.
   Future<void> enrollChildInWorkshopSeries(
       String childId, String seriesId) async {
+    if (kDebugMode) {
+      debugPrint('[Enrollment] enroll child=$childId series=$seriesId');
+    }
+    await _ensureSeriesExists(seriesId);
     try {
       await _client.from('workshop_enrollments').insert({
         'child_id': childId,
@@ -220,10 +265,29 @@ class EnrollmentRepository {
 
   Future<void> removeChildFromWorkshopSeries(
       String childId, String seriesId) async {
+    if (kDebugMode) {
+      debugPrint('[Enrollment] remove child=$childId from series=$seriesId');
+    }
     await _client
         .from('workshop_enrollments')
         .update({'is_active': false})
         .eq('child_id', childId)
         .eq('series_id', seriesId);
+  }
+
+  /// Deactivates a workshop series and all its future scheduled sessions.
+  /// Existing enrollment and attendance data are preserved.
+  Future<void> deactivateSeries(String seriesId) async {
+    if (kDebugMode) debugPrint('[Enrollment] deactivateSeries id=$seriesId');
+    await _client
+        .from('workshop_series')
+        .update({'is_active': false})
+        .eq('id', seriesId);
+    final today = DateTime.now().toIso8601String().split('T').first;
+    await _client
+        .from('scheduled_workshops')
+        .update({'is_active': false})
+        .eq('recurring_series_id', seriesId)
+        .gte('workshop_date', today);
   }
 }

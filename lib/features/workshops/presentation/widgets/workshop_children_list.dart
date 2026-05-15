@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/responsive.dart';
 import '../../domain/workshop_detail_row.dart';
 import '../../providers/enrollment_providers.dart';
 import 'attendance_mark_row.dart';
@@ -19,6 +20,8 @@ class WorkshopChildrenList extends StatelessWidget {
     this.isAdmin = false,
     this.seriesId,
     this.onEnrolled,
+    this.markingAll = false,
+    this.onMarkAll,
   });
 
   final String workshopId;
@@ -33,6 +36,10 @@ class WorkshopChildrenList extends StatelessWidget {
   /// an "Adaugă copii" button that opens [EnrollChildrenDialog].
   final String? seriesId;
   final VoidCallback? onEnrolled;
+  final bool markingAll;
+  /// Called when the user confirms "Marchează toți prezenți".
+  /// Null means the button is not shown.
+  final VoidCallback? onMarkAll;
 
   @override
   Widget build(BuildContext context) {
@@ -50,48 +57,25 @@ class WorkshopChildrenList extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: AppColors.purple.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.people_outline,
-                      size: 16, color: AppColors.purple),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Copii înscriși',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.purple.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${enrolled.length}',
-                    style: const TextStyle(
-                      color: AppColors.purple,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (isAdmin && seriesId != null) ...[
-                  _AddChildrenButton(
-                    seriesId: seriesId!,
+            child: context.isMobile
+                ? _MobileHeader(
+                    count: enrolled.length,
+                    theme: theme,
+                    isAdmin: isAdmin,
+                    seriesId: seriesId,
                     onEnrolled: onEnrolled,
+                    onMarkAll: onMarkAll,
+                    markingAll: markingAll,
+                  )
+                : _DesktopHeader(
+                    count: enrolled.length,
+                    theme: theme,
+                    isAdmin: isAdmin,
+                    seriesId: seriesId,
+                    onEnrolled: onEnrolled,
+                    onMarkAll: onMarkAll,
+                    markingAll: markingAll,
                   ),
-                ],
-              ],
-            ),
           ),
           Divider(
               height: 1,
@@ -201,6 +185,196 @@ class _SummaryPill extends StatelessWidget {
         style: TextStyle(
             color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
+    );
+  }
+}
+
+// ── Responsive header widgets ────────────────────────────────────────────────
+
+class _DesktopHeader extends StatelessWidget {
+  const _DesktopHeader({
+    required this.count,
+    required this.theme,
+    required this.isAdmin,
+    this.seriesId,
+    this.onEnrolled,
+    this.onMarkAll,
+    required this.markingAll,
+  });
+  final int count;
+  final ThemeData theme;
+  final bool isAdmin;
+  final String? seriesId;
+  final VoidCallback? onEnrolled;
+  final VoidCallback? onMarkAll;
+  final bool markingAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppColors.purple.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.people_outline,
+              size: 16, color: AppColors.purple),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Copii înscriși',
+          style: theme.textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const Spacer(),
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.purple.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '$count',
+            style: const TextStyle(
+              color: AppColors.purple,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (isAdmin && seriesId != null)
+          _AddChildrenButton(seriesId: seriesId!, onEnrolled: onEnrolled),
+        if (onMarkAll != null)
+          _MarkAllPresentButton(onMarkAll: onMarkAll!, loading: markingAll),
+      ],
+    );
+  }
+}
+
+class _MobileHeader extends StatelessWidget {
+  const _MobileHeader({
+    required this.count,
+    required this.theme,
+    required this.isAdmin,
+    this.seriesId,
+    this.onEnrolled,
+    this.onMarkAll,
+    required this.markingAll,
+  });
+  final int count;
+  final ThemeData theme;
+  final bool isAdmin;
+  final String? seriesId;
+  final VoidCallback? onEnrolled;
+  final VoidCallback? onMarkAll;
+  final bool markingAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasActions = (isAdmin && seriesId != null) || onMarkAll != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppColors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.people_outline,
+                  size: 16, color: AppColors.purple),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Copii înscriși',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: AppColors.purple,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (hasActions) ...[
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              if (isAdmin && seriesId != null)
+                _AddChildrenButton(
+                    seriesId: seriesId!, onEnrolled: onEnrolled),
+              if (onMarkAll != null)
+                _MarkAllPresentButton(
+                  onMarkAll: onMarkAll!,
+                  loading: markingAll,
+                  shortLabel: true,
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ── Marchează toți prezenți button ───────────────────────────────────────────
+
+class _MarkAllPresentButton extends StatelessWidget {
+  const _MarkAllPresentButton({
+    required this.onMarkAll,
+    required this.loading,
+    this.shortLabel = false,
+  });
+
+  final VoidCallback onMarkAll;
+  final bool loading;
+  final bool shortLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: loading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : TextButton.icon(
+              onPressed: onMarkAll,
+              icon: const Icon(Icons.done_all_rounded, size: 15),
+              label: Text(
+                  shortLabel ? 'Toți prezenți' : 'Marchează toți prezenți'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.success,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                textStyle: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
     );
   }
 }

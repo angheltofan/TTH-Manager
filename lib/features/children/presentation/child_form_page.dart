@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../providers/child_details_providers.dart';
 import '../providers/children_providers.dart';
 import 'widgets/child_form_contact.dart';
 import 'widgets/child_form_helpers.dart';
@@ -132,6 +133,10 @@ class _ChildFormPageState extends ConsumerState<ChildFormPage> {
         await repo.create(data);
       }
       ref.invalidate(allChildrenProvider);
+      if (_isEditing) {
+        ref.invalidate(childByIdProvider(widget.childId!));
+        ref.invalidate(childDetailProvider(widget.childId!));
+      }
       if (!mounted) return;
       context.canPop() ? context.pop() : context.go('/children');
     } catch (e) {

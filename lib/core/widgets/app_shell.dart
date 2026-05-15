@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/team_chat/providers/team_chat_providers.dart';
+import '../providers/app_realtime_provider.dart';
 import 'sidebar.dart';
 import 'top_bar.dart';
 
@@ -22,6 +24,17 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Keep the global Team Chat realtime listener alive while the shell is
+    // mounted (i.e. while any authenticated user is using the app).
+    // The provider itself gates on admin/trainer roles, so non-staff users
+    // won't subscribe. AutoDispose removes the channel on logout.
+    // Centralized Supabase Realtime sync — one provider for all 8 tables.
+    // Active only for authenticated admin/trainer users. AutoDispose removes
+    // channels on logout.
+    ref.watch(appRealtimeProvider);
+    // Team chat has its own dedicated realtime channel (handles badge logic).
+    ref.watch(teamChatRealtimeProvider);
+
     final location = GoRouterState.of(context).uri.path;
     final currentIndex = _navItems.indexWhere(
       (item) => location == item.path || location.startsWith('${item.path}/'),

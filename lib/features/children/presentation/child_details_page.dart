@@ -1,13 +1,18 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../dashboard/providers/dashboard_providers.dart';
+import '../../payments_due/providers/payments_due_providers.dart';
 import '../../workshops/providers/enrollment_providers.dart';
 import '../providers/child_details_providers.dart';
+import '../providers/children_providers.dart';
 import 'widgets/assigned_workshops_card.dart';
 import 'widgets/child_info_card.dart';
 import 'widgets/current_status_card.dart';
@@ -22,10 +27,14 @@ class ChildDetailsPage extends ConsumerStatefulWidget {
 }
 
 class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
+  RealtimeChannel? _attChannel;
+  RealtimeChannel? _payChannel;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       ref.invalidate(childByIdProvider(widget.childId));
       ref.invalidate(childWorkshopSeriesProvider(widget.childId));
       ref.invalidate(childCurrentStatusProvider(widget.childId));
@@ -33,6 +42,85 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
       ref.invalidate(childPaymentCyclesNewProvider(widget.childId));
       ref.invalidate(childPaymentStatusRowsProvider(widget.childId));
     });
+    _subscribeToChildChanges();
+  }
+
+  void _subscribeToChildChanges() {
+    final client = Supabase.instance.client;
+    final childId = widget.childId;
+
+    // ── Attendance channel ──────────────────────────────────────────────────
+    _attChannel = client
+        .channel('att:child:$childId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'attendance',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'child_id',
+            value: childId,
+          ),
+          callback: (payload) {
+            if (kDebugMode) {
+              debugPrint('[RT] att:child:$childId → \${payload.eventType}');
+            }
+            if (mounted) {
+              ref.invalidate(childCurrentStatusProvider(childId));
+              ref.invalidate(childCurrentStatusRowsProvider(childId));
+              ref.invalidate(childPaymentStatusRowsProvider(childId));
+              ref.invalidate(allChildrenProvider);
+              ref.invalidate(weeklyAttendancesProvider);
+              ref.invalidate(dashboardStatsProvider);
+            }
+          },
+        )
+        .subscribe((status, [error]) {
+          if (kDebugMode) {
+            debugPrint('[RT] subscribed att:child:$childId → \$status');
+          }
+        });
+
+    // ── Payment cycles channel ──────────────────────────────────────────────
+    _payChannel = client
+        .channel('pay:child:$childId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payment_cycles',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'child_id',
+            value: childId,
+          ),
+          callback: (payload) {
+            if (kDebugMode) {
+              debugPrint('[RT] pay:child:$childId → \${payload.eventType}');
+            }
+            if (mounted) {
+              ref.invalidate(childPaymentCyclesNewProvider(childId));
+              ref.invalidate(childPaymentStatusRowsProvider(childId));
+              ref.invalidate(childCurrentStatusProvider(childId));
+              ref.invalidate(childCurrentStatusRowsProvider(childId));
+              ref.invalidate(allChildrenProvider);
+              ref.invalidate(paymentsDueProvider);
+              ref.invalidate(dashboardStatsProvider);
+            }
+          },
+        )
+        .subscribe((status, [error]) {
+          if (kDebugMode) {
+            debugPrint('[RT] subscribed pay:child:$childId → \$status');
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    final client = Supabase.instance.client;
+    if (_attChannel != null) client.removeChannel(_attChannel!);
+    if (_payChannel != null) client.removeChannel(_payChannel!);
+    super.dispose();
   }
 
   @override

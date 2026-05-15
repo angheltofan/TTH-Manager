@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../features/auth/providers/auth_providers.dart';
 import '../../features/notifications/presentation/widgets/notification_panel.dart';
 import '../../features/notifications/providers/notifications_providers.dart';
 import '../theme/app_theme.dart';
@@ -25,6 +28,52 @@ class AppNotificationBell extends ConsumerStatefulWidget {
 
 class _AppNotificationBellState extends ConsumerState<AppNotificationBell> {
   final _bellKey = GlobalKey();
+  RealtimeChannel? _notifChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribeToNotifications();
+  }
+
+  void _subscribeToNotifications() {
+    final userId = ref.read(currentUserProvider)?.id;
+    if (userId == null) return;
+    _notifChannel = Supabase.instance.client
+        .channel('notif:user:$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'recipient_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            if (kDebugMode) {
+              debugPrint('[RT] notif:user:$userId → \${payload.eventType}');
+            }
+            if (mounted) {
+              ref.invalidate(recentNotificationsProvider);
+              ref.invalidate(unreadCountFutureProvider);
+            }
+          },
+        )
+        .subscribe((status, [error]) {
+          if (kDebugMode) {
+            debugPrint('[RT] subscribed notif:user:$userId → \$status');
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    if (_notifChannel != null) {
+      Supabase.instance.client.removeChannel(_notifChannel!);
+    }
+    super.dispose();
+  }
 
   void _toggle() {
     final width = MediaQuery.sizeOf(context).width;
