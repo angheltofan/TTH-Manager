@@ -121,13 +121,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             )
                           : const Text('Autentificare'),
                     ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => context.go('/signup'),
-                        child: const Text('Nu ai cont? Înregistrează-te'),
-                      ),
-                    ),
                     const SizedBox(height: 8),
                   ],
                 ),

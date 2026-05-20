@@ -129,7 +129,7 @@ final childrenTrainersProvider =
 // ── Weekly attendances (present status only, Mon–Sun current week) ───────────
 
 final weeklyAttendancesProvider = FutureProvider<int>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
+  final repo = ref.watch(childrenRepositoryProvider);
   final now = DateTime.now();
   final monday =
       DateTime(now.year, now.month, now.day - (now.weekday - 1));
@@ -137,14 +137,7 @@ final weeklyAttendancesProvider = FutureProvider<int>((ref) async {
   final from = monday.toIso8601String().substring(0, 10);
   final to = sunday.toIso8601String().substring(0, 10);
 
-  final data = await client
-      .from('workshop_details')
-      .select('attendance_status')
-      .eq('attendance_status', 'present')
-      .gte('workshop_date', from)
-      .lte('workshop_date', to);
-
-  return (data as List).length;
+  return repo.countWeeklyPresentAttendances(from: from, to: to);
 });
 
 // ── Legacy providers (kept for child edit form) ───────────────────────────────

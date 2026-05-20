@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/supabase/supabase_client_provider.dart';
 import '../core/widgets/app_shell.dart';
 import '../features/auth/presentation/login_page.dart';
-import '../features/auth/presentation/signup_page.dart';
 import '../features/children/presentation/child_details_page.dart';
 import '../features/children/presentation/child_form_page.dart';
 import '../features/children/presentation/children_page.dart';
@@ -61,7 +60,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final loggedIn = authNotifier.isLoggedIn;
       final path = state.matchedLocation;
-      final isAuthRoute = path == '/login' || path == '/signup';
+      final isAuthRoute = path == '/login';
 
       if (!loggedIn && !isAuthRoute) return '/login';
       if (loggedIn && isAuthRoute) return '/dashboard';
@@ -71,10 +70,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginPage(),
-      ),
-      GoRoute(
-        path: '/signup',
-        builder: (context, state) => const SignupPage(),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),

@@ -1,6 +1,4 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
 import '../data/enrollment_repository.dart';
@@ -23,7 +21,7 @@ final activeWorkshopSeriesProvider =
 });
 
 final workshopSeriesByIdProvider =
-    FutureProvider.family<WorkshopSeries?, String>((ref, id) {
+    FutureProvider.autoDispose.family<WorkshopSeries?, String>((ref, id) {
   return ref
       .watch(enrollmentRepositoryProvider)
       .fetchWorkshopSeriesById(id);
@@ -65,35 +63,5 @@ final availableChildrenForSeriesProvider =
       .fetchAvailableChildrenForSeries(seriesId);
 });
 
-// ── Global realtime for workshop_enrollments ─────────────────────────────
-
-/// Watches [workshop_enrollments] for changes and invalidates series
-/// providers so lists update on other devices.
-/// Watched by [AppShell] while the user is logged in.
-final enrollmentRealtimeProvider = Provider.autoDispose<void>((ref) {
-  final client = ref.watch(supabaseClientProvider);
-  if (kDebugMode) debugPrint('[RT] workshop_enrollments: subscribing');
-
-  final channel = client
-      .channel('global_workshop_enrollments')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'workshop_enrollments',
-        callback: (payload) {
-          if (kDebugMode) {
-            debugPrint('[RT] workshop_enrollments → ${payload.eventType}');
-          }
-          ref.invalidate(activeWorkshopSeriesProvider);
-          if (kDebugMode) {
-            debugPrint('[RT] activeWorkshopSeriesProvider invalidated');
-          }
-        },
-      )
-      .subscribe();
-
-  ref.onDispose(() {
-    if (kDebugMode) debugPrint('[RT] workshop_enrollments: removing channel');
-    client.removeChannel(channel);
-  });
-});
+// Realtime for `workshop_enrollments` is handled centrally by
+// appRealtimeProvider (see core/providers/app_realtime_provider.dart).

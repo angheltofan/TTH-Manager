@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_utils.dart';
@@ -12,7 +11,7 @@ import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../children/providers/children_providers.dart';
 import '../../dashboard/providers/dashboard_providers.dart';
-import '../domain/workshop_detail_row.dart';
+import '../domain/series_enrolled_child.dart';
 import '../providers/enrollment_providers.dart';
 import '../providers/workshops_providers.dart';
 import 'widgets/workshop_children_list.dart';
@@ -34,102 +33,14 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
   // Tracks which childIds are currently being saved
   final Set<String> _marking = {};
   bool _markingAll = false;
-  RealtimeChannel? _attChannel;
-  RealtimeChannel? _enrollmentChannel;
-  String? _subscribedSeriesId;
+  String? _listenedSeriesId;
 
-  @override
-  void initState() {
-    super.initState();
-    _subscribeToAttendance();
-  }
-
-  void _subscribeToAttendance() {
-    _attChannel = Supabase.instance.client
-        .channel('att:ws:${widget.workshopId}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'attendance',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'scheduled_workshop_id',
-            value: widget.workshopId,
-          ),
-          callback: (payload) {
-            if (kDebugMode) {
-              debugPrint(
-                '[RT] att:ws:${widget.workshopId} → ${payload.eventType}',
-              );
-            }
-            if (mounted) {
-              if (kDebugMode) debugPrint('[RT] invalidating workshopDetailsProvider(${widget.workshopId})');
-              ref.invalidate(workshopDetailsProvider(widget.workshopId));
-              ref.invalidate(allChildrenProvider);
-              ref.invalidate(weeklyAttendancesProvider);
-              ref.invalidate(dashboardStatsProvider);
-            }
-          },
-        )
-        .subscribe((status, [error]) {
-          if (kDebugMode) {
-            debugPrint(
-              '[RT] subscribed att:ws:${widget.workshopId} → $status',
-            );
-          }
-        });
-  }
-
-  @override
-  void dispose() {
-    if (_attChannel != null) {
-      Supabase.instance.client.removeChannel(_attChannel!);
-    }
-    if (_enrollmentChannel != null) {
-      Supabase.instance.client.removeChannel(_enrollmentChannel!);
-    }
-    super.dispose();
-  }
-
-  /// Subscribes to [workshop_enrollments] for the series that this workshop
-  /// belongs to. Called once we have the [seriesId] from the loaded data.
-  void _subscribeToEnrollmentsIfNeeded(String? seriesId) {
-    if (seriesId == null || seriesId == _subscribedSeriesId) return;
-    _subscribedSeriesId = seriesId;
-    if (kDebugMode) {
-      debugPrint('[RT] enroll:ws:$seriesId: subscribing');
-    }
-    _enrollmentChannel = Supabase.instance.client
-        .channel('enroll:ws:$seriesId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'workshop_enrollments',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'series_id',
-            value: seriesId,
-          ),
-          callback: (payload) {
-            if (kDebugMode) {
-              debugPrint(
-                '[RT] enroll:ws:$seriesId → ${payload.eventType}',
-              );
-            }
-            if (mounted) {
-              ref.invalidate(workshopDetailsProvider(widget.workshopId));
-              ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
-              ref.invalidate(availableChildrenForSeriesProvider(seriesId));
-              ref.invalidate(activeWorkshopSeriesProvider);
-            }
-          },
-        )
-        .subscribe((status, [error]) {
-          if (kDebugMode) {
-            debugPrint('[RT] enroll:ws:$seriesId → $status');
-          }
-        });
-  }
+  // Realtime for `attendance` and `workshop_enrollments` is handled centrally
+  // by appRealtimeProvider. For enrollments, the central provider invalidates
+  // seriesEnrolledChildrenProvider(seriesId) — but it cannot also invalidate
+  // workshopDetailsProvider(workshopId) because the payload only carries
+  // series_id. We bridge that gap below with a ref.listen on the enrolled
+  // children provider; when it refreshes, we invalidate the details view.
 
   Future<void> _cancelSession() async {
     final ok = await showDialog<bool>(
@@ -263,17 +174,29 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
     final isAdmin = profile?.isAdmin ?? false;
     final theme = Theme.of(context);
 
-    // Subscribe to enrollment realtime once we know the series id.
-    ref.listen<AsyncValue<List<WorkshopDetailRow>>>(
-      workshopDetailsProvider(widget.workshopId),
-      (_, next) {
-        final rows = next.valueOrNull;
-        final seriesId = (rows != null && rows.isNotEmpty)
-            ? rows.first.seriesId
-            : null;
-        _subscribeToEnrollmentsIfNeeded(seriesId);
-      },
-    );
+    // Remember which series this workshop belongs to so we know which
+    // enrolled-children provider to listen on.
+    final detailsRows = detailsAsync.valueOrNull;
+    if (detailsRows != null && detailsRows.isNotEmpty) {
+      _listenedSeriesId = detailsRows.first.seriesId;
+    }
+
+    // Central appRealtimeProvider invalidates seriesEnrolledChildrenProvider
+    // for the affected series, but it cannot know which scheduled_workshop_id
+    // belongs to this view — workshop_enrollments rows only carry series_id.
+    // Bridge that gap: whenever the enrolled-children list refreshes for our
+    // series, also invalidate this workshop's details provider so the join
+    // re-runs and shows the new roster.
+    if (_listenedSeriesId != null) {
+      ref.listen<AsyncValue<List<SeriesEnrolledChild>>>(
+        seriesEnrolledChildrenProvider(_listenedSeriesId!),
+        (_, _) {
+          if (mounted) {
+            ref.invalidate(workshopDetailsProvider(widget.workshopId));
+          }
+        },
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,

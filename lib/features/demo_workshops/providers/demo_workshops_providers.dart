@@ -22,7 +22,7 @@ final todayDemoWorkshopsProvider =
 // ── Single demo by id ─────────────────────────────────────────────────────────
 
 final demoWorkshopByIdProvider =
-    FutureProvider.family<DemoWorkshop?, String>((ref, id) {
+    FutureProvider.autoDispose.family<DemoWorkshop?, String>((ref, id) {
   return ref.watch(demoWorkshopsRepositoryProvider).getById(id);
 });
 

@@ -1,9 +1,6 @@
-﻿import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
-import '../../dashboard/providers/dashboard_providers.dart';
 import '../data/workshops_repository.dart';
 import '../domain/scheduled_workshop.dart';
 import '../domain/workshop_detail_row.dart';
@@ -17,7 +14,7 @@ final workshopsRepositoryProvider = Provider<WorkshopsRepository>((ref) {
 // ── Providers used by WorkshopDetailsPage ─────────────────────────────────────
 
 final workshopDetailsProvider =
-    FutureProvider.family<List<WorkshopDetailRow>, String>(
+    FutureProvider.autoDispose.family<List<WorkshopDetailRow>, String>(
   (ref, workshopId) {
     return ref.watch(workshopsRepositoryProvider).getDetails(workshopId);
   },
@@ -32,7 +29,7 @@ final workshopsListProvider = FutureProvider<List<ScheduledWorkshop>>((ref) {
 // ── Single workshop by ID (used by WorkshopFormPage in edit mode) ─────────────
 
 final workshopByIdProvider =
-    FutureProvider.family<ScheduledWorkshop?, String>((ref, id) {
+    FutureProvider.autoDispose.family<ScheduledWorkshop?, String>((ref, id) {
   return ref.watch(workshopsRepositoryProvider).getById(id);
 });
 
@@ -60,37 +57,5 @@ final trainersForDropdownProvider =
       .toList();
 });
 
-// ── Global realtime for scheduled_workshops ───────────────────────────────────
-
-/// Watches [scheduled_workshops] for INSERT/UPDATE/DELETE events and
-/// invalidates list providers so the UI refreshes on any device.
-/// Watched by [AppShell] while the user is logged in.
-final workshopsRealtimeProvider = Provider.autoDispose<void>((ref) {
-  final client = ref.watch(supabaseClientProvider);
-  if (kDebugMode) debugPrint('[RT] scheduled_workshops: subscribing');
-
-  final channel = client
-      .channel('global_scheduled_workshops')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'scheduled_workshops',
-        callback: (payload) {
-          if (kDebugMode) {
-            debugPrint('[RT] scheduled_workshops → ${payload.eventType}');
-          }
-          ref.invalidate(allScheduledWorkshopsProvider);
-          ref.invalidate(todayWorkshopsProvider);
-          ref.invalidate(workshopsListProvider);
-          if (kDebugMode) {
-            debugPrint('[RT] workshop list providers invalidated');
-          }
-        },
-      )
-      .subscribe();
-
-  ref.onDispose(() {
-    if (kDebugMode) debugPrint('[RT] scheduled_workshops: removing channel');
-    client.removeChannel(channel);
-  });
-});
+// Realtime for `scheduled_workshops` is handled centrally by
+// appRealtimeProvider (see core/providers/app_realtime_provider.dart).

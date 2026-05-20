@@ -49,6 +49,14 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
   //
   // When attendance changes on any device, update the workshop detail view,
   // child status, dashboard stats and weekly attendance counter.
+  //
+  // Invalidation policy:
+  //   - dashboardStatsProvider, todayWorkshopsProvider, weeklyAttendancesProvider
+  //     are always invalidated (dashboard depends on aggregate counts).
+  //   - When childId is present, we invalidate just that child's providers
+  //     (incl. childByIdProvider) and skip allChildrenProvider — the children
+  //     list's last-attendance pill may be briefly stale, accepted in Phase 2.
+  //   - When childId is null (rare), fall back to invalidating allChildrenProvider.
   final attChannel = client
       .channel('rt:attendance')
       .onPostgresChanges(
@@ -65,11 +73,16 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
               'wsId=$wsId childId=$childId',
             );
           }
-          // Broad invalidations always fired.
+          // Aggregate / dashboard-facing providers (always).
           ref.invalidate(dashboardStatsProvider);
           ref.invalidate(todayWorkshopsProvider);
           ref.invalidate(weeklyAttendancesProvider);
-          ref.invalidate(allChildrenProvider);
+          if (kDebugMode) {
+            debugPrint(
+              '[RT] attendance: invalidated dashboardStats, '
+              'todayWorkshops, weeklyAttendances',
+            );
+          }
           // Targeted invalidations using IDs from the payload.
           if (wsId != null) {
             ref.invalidate(workshopDetailsProvider(wsId));
@@ -78,11 +91,24 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
             }
           }
           if (childId != null) {
+            ref.invalidate(childByIdProvider(childId));
             ref.invalidate(childCurrentStatusProvider(childId));
             ref.invalidate(childCurrentStatusRowsProvider(childId));
             ref.invalidate(childPaymentStatusRowsProvider(childId));
             if (kDebugMode) {
-              debugPrint('[RT] attendance: child providers($childId) invalidated');
+              debugPrint(
+                '[RT] attendance: child providers($childId) invalidated '
+                '(childById, currentStatus, currentStatusRows, paymentStatusRows)',
+              );
+            }
+          } else {
+            // Fallback: childId unknown, refresh the whole list so the
+            // last-attendance pill stays consistent.
+            ref.invalidate(allChildrenProvider);
+            if (kDebugMode) {
+              debugPrint(
+                '[RT] attendance: childId null → fell back to allChildrenProvider',
+              );
             }
           }
         },
@@ -237,6 +263,14 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
   // ── 6. payment_cycles ────────────────────────────────────────────────────
   //
   // Keeps payment status and overdue list in sync across devices.
+  //
+  // Invalidation policy:
+  //   - dashboardStatsProvider and paymentsDueProvider always (the
+  //     payments-due list and dashboard tile aggregate across children).
+  //   - When childId is present, invalidate exact child payment providers
+  //     and skip allChildrenProvider (the list's last-attendance pill is
+  //     unaffected by payment changes).
+  //   - When childId is null, fall back to allChildrenProvider.
   final payChannel = client
       .channel('rt:payment_cycles')
       .onPostgresChanges(
@@ -253,14 +287,31 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           }
           ref.invalidate(dashboardStatsProvider);
           ref.invalidate(paymentsDueProvider);
+          if (kDebugMode) {
+            debugPrint(
+              '[RT] payment_cycles: invalidated dashboardStats, paymentsDue',
+            );
+          }
           if (childId != null) {
+            ref.invalidate(childByIdProvider(childId));
             ref.invalidate(childPaymentCyclesNewProvider(childId));
             ref.invalidate(childPaymentStatusRowsProvider(childId));
             ref.invalidate(childCurrentStatusProvider(childId));
             ref.invalidate(childCurrentStatusRowsProvider(childId));
+            if (kDebugMode) {
+              debugPrint(
+                '[RT] payment_cycles: child providers($childId) invalidated '
+                '(childById, paymentCyclesNew, paymentStatusRows, '
+                'currentStatus, currentStatusRows)',
+              );
+            }
+          } else {
+            // Fallback when childId is missing — refresh the list.
             ref.invalidate(allChildrenProvider);
             if (kDebugMode) {
-              debugPrint('[RT] payment_cycles: child providers($childId) invalidated');
+              debugPrint(
+                '[RT] payment_cycles: childId null → fell back to allChildrenProvider',
+              );
             }
           }
         },

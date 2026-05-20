@@ -18,7 +18,7 @@ final childDetailsRepositoryProvider =
 // ── Child by ID ───────────────────────────────────────────────────────────────
 
 final childByIdProvider =
-    FutureProvider.family<ChildModel?, String>((ref, childId) {
+    FutureProvider.autoDispose.family<ChildModel?, String>((ref, childId) {
   return ref
       .watch(childDetailsRepositoryProvider)
       .fetchChildById(childId);
@@ -28,7 +28,8 @@ final childByIdProvider =
 // ── Current cycle summary ─────────────────────────────────────────────────────
 
 final childCurrentStatusProvider =
-    FutureProvider.family<ChildCurrentStatus?, String>((ref, childId) {
+    FutureProvider.autoDispose.family<ChildCurrentStatus?, String>(
+        (ref, childId) {
   return ref
       .watch(childDetailsRepositoryProvider)
       .fetchChildCurrentStatus(childId);
@@ -37,7 +38,7 @@ final childCurrentStatusProvider =
 // ── Current cycle attendance rows ─────────────────────────────────────────────
 
 final childCurrentStatusRowsProvider =
-    FutureProvider.family<List<ChildCurrentStatusRow>, String>(
+    FutureProvider.autoDispose.family<List<ChildCurrentStatusRow>, String>(
         (ref, childId) {
   return ref
       .watch(childDetailsRepositoryProvider)
@@ -47,7 +48,7 @@ final childCurrentStatusRowsProvider =
 // ── Payment status rows ───────────────────────────────────────────────────────
 
 final childPaymentStatusRowsProvider =
-    FutureProvider.family<List<ChildPaymentStatusRow>, String>(
+    FutureProvider.autoDispose.family<List<ChildPaymentStatusRow>, String>(
         (ref, childId) {
   return ref
       .watch(childDetailsRepositoryProvider)
@@ -57,7 +58,8 @@ final childPaymentStatusRowsProvider =
 // ── Payment cycles ────────────────────────────────────────────────────────────
 
 final childPaymentCyclesNewProvider =
-    FutureProvider.family<List<ChildPaymentCycle>, String>((ref, childId) {
+    FutureProvider.autoDispose.family<List<ChildPaymentCycle>, String>(
+        (ref, childId) {
   return ref
       .watch(childDetailsRepositoryProvider)
       .fetchPaymentCycles(childId);

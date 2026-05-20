@@ -15,7 +15,7 @@ final trainersListProvider = FutureProvider<List<TrainerProfile>>((ref) {
 });
 
 final trainerDetailProvider =
-    FutureProvider.family<TrainerProfile?, String>((ref, id) {
+    FutureProvider.autoDispose.family<TrainerProfile?, String>((ref, id) {
   return ref.watch(trainersRepositoryProvider).getById(id);
 });
 
