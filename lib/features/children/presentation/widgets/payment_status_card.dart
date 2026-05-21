@@ -1,9 +1,9 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/loading_state.dart';
+import '../../../auth/providers/auth_providers.dart';
 import '../../domain/child_payment_cycle.dart';
 import '../../domain/child_payment_status_row.dart';
 import '../../providers/child_details_providers.dart';
@@ -146,7 +146,7 @@ class PaymentStatusCard extends ConsumerWidget {
 
   Future<void> _confirmClosedCycle(
       BuildContext context, WidgetRef ref, String cycleId) async {
-    final authUser = Supabase.instance.client.auth.currentUser;
+    final authUser = ref.read(currentUserProvider);
     if (authUser == null) return;
 
     final result = await showPaymentMethodDialog(

@@ -14,7 +14,6 @@ class WorkshopDetailRow {
     this.childFirstName,
     this.childLastName,
     this.parentName,
-    this.parentPhone,
     this.attendanceStatus,
     this.attendanceObservation,
   });
@@ -35,7 +34,6 @@ class WorkshopDetailRow {
   final String? childFirstName;
   final String? childLastName;
   final String? parentName;
-  final String? parentPhone;
   final String? attendanceStatus;
   final String? attendanceObservation;
 
@@ -54,7 +52,6 @@ class WorkshopDetailRow {
       childFirstName: map['child_first_name'] as String?,
       childLastName: map['child_last_name'] as String?,
       parentName: map['parent_name'] as String?,
-      parentPhone: map['parent_phone'] as String?,
       attendanceStatus: map['attendance_status'] as String?,
       attendanceObservation: map['attendance_observation'] as String?,
     );

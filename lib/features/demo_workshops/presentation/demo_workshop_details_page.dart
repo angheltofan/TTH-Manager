@@ -144,11 +144,11 @@ class _DemoWorkshopDetailsPageState
       ref.invalidate(activeWorkshopSeriesProvider);
       ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
       ref.invalidate(availableChildrenForSeriesProvider(seriesId));
-      if (childId != null) {
-        ref.invalidate(childWorkshopSeriesProvider(childId!));
-        ref.invalidate(childByIdProvider(childId!));
-        ref.invalidate(childCurrentStatusProvider(childId!));
-      }
+      // After step 1 (createChild / link existing), childId is guaranteed
+      // non-null — the analyzer flagged the previous null-check/`!` chain.
+      ref.invalidate(childWorkshopSeriesProvider(childId));
+      ref.invalidate(childByIdProvider(childId));
+      ref.invalidate(childCurrentStatusProvider(childId));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

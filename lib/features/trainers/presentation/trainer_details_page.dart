@@ -153,7 +153,7 @@ class TrainerDetailsPage extends ConsumerWidget {
               // ── Workshop series card ───────────────────────────────
               seriesAsync.when(
                 loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
                 data: (series) => _TrainerSeriesCard(series: series),
               ),
             ],
@@ -350,7 +350,6 @@ class _TimePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

@@ -76,7 +76,7 @@ class WorkshopsRepository {
       final enrollmentData = await _client
           .from('workshop_enrollments')
           .select(
-              'child_id, children!child_id(id, first_name, last_name, parent_phone)')
+              'child_id, children!child_id(id, first_name, last_name)')
           .eq('series_id', seriesId)
           .eq('is_active', true);
 
@@ -159,7 +159,6 @@ class WorkshopsRepository {
         childId: childId,
         childFirstName: child['first_name'] as String?,
         childLastName: child['last_name'] as String?,
-        parentPhone: child['parent_phone'] as String?,
         attendanceStatus: att?['status'] as String?,
         attendanceObservation: att?['observation'] as String?,
       );

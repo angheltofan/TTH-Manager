@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/utils/responsive.dart';
+import '../../../auth/providers/auth_providers.dart';
 import '../../domain/child_current_status_row.dart';
 import '../../providers/child_details_providers.dart';
 import 'attendance_row_item.dart';
@@ -116,7 +116,7 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
   }
 
   Future<void> _onConfirm() async {
-    final authUser = Supabase.instance.client.auth.currentUser;
+    final authUser = ref.read(currentUserProvider);
     if (authUser == null) return;
 
     final isDue = widget.dueGroup != null;

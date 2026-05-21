@@ -37,10 +37,24 @@ class TeamChatRepository {
   }
 
   /// Soft-deletes a message (does not physically remove it).
-  Future<void> softDeleteMessage(String messageId) async {
-    await _client
+  ///
+  /// Defense-in-depth alongside RLS:
+  ///   • Regular users may only delete their own messages — the update is
+  ///     additionally filtered on `sender_id = currentUserId`.
+  ///   • Admins may delete any message — the sender filter is skipped when
+  ///     [isAdmin] is true. Server-side RLS is still the source of truth.
+  Future<void> softDeleteMessage({
+    required String messageId,
+    required String currentUserId,
+    bool isAdmin = false,
+  }) async {
+    var query = _client
         .from('team_chat_messages')
         .update({'is_deleted': true})
         .eq('id', messageId);
+    if (!isAdmin) {
+      query = query.eq('sender_id', currentUserId);
+    }
+    await query;
   }
 }

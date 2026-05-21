@@ -245,10 +245,16 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
   }
 
   Future<void> _deleteMessage(String messageId) async {
+    final user = ref.read(currentUserProvider);
+    if (user == null) return;
+    final profile = ref.read(currentProfileProvider).valueOrNull;
+    final isAdmin = profile?.isAdmin ?? false;
     try {
-      await ref
-          .read(teamChatRepositoryProvider)
-          .softDeleteMessage(messageId);
+      await ref.read(teamChatRepositoryProvider).softDeleteMessage(
+            messageId: messageId,
+            currentUserId: user.id,
+            isAdmin: isAdmin,
+          );
       ref.invalidate(teamChatMessagesProvider);
     } on PostgrestException catch (e) {
       if (mounted) {
