@@ -185,7 +185,7 @@ class PaymentStatusCard extends ConsumerWidget {
     // Build a lookup of cycle data for paymentMethod / notes.
     final cycleData = {for (final c in cycles) c.id: c};
 
-    return map.entries.map((e) {
+    final groups = map.entries.map((e) {
       final m = meta[e.key]!;
       final sorted = (e.value
             ..sort((a, b) => (a.workshopDate ?? DateTime(0))
@@ -205,6 +205,29 @@ class PaymentStatusCard extends ConsumerWidget {
         rows: sorted,
       );
     }).toList();
+
+    // Defensive: make sure every due/overdue cycle is represented, even when
+    // the rows view returns no attendance rows for it (trigger race, partial
+    // linking, etc.). Without this, a freshly-closed cycle could disappear
+    // from "Status plată" and the user would lose the confirm-payment action.
+    final represented = map.keys.toSet();
+    for (final cycle in cycles) {
+      if (cycle.id.isEmpty) continue;
+      if (represented.contains(cycle.id)) continue;
+      if (cycle.status != 'due' && cycle.status != 'overdue') continue;
+      groups.add(CycleGroup(
+        cycleId: cycle.id,
+        cycleStatus: cycle.status,
+        periodStart: cycle.periodStart,
+        periodEnd: cycle.periodEnd,
+        paidAt: cycle.paidAt,
+        confirmedByName: null,
+        paymentMethod: _resolveMethod(cycle.paymentMethod, cycle.notes),
+        rows: const [],
+      ));
+    }
+
+    return groups;
   }
 
   /// Derives a display method label from the stored column or, as fallback,

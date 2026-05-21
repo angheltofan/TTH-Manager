@@ -52,7 +52,10 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
   bool _populated = false;
   bool _populateScheduled = false;
   bool _saving = false;
-  String? _recurringSeriesId;
+  // Canonical FK to workshop_series.id. The repository mirrors this into
+  // both `series_id` and `recurring_series_id` columns on save so the
+  // legacy column stays in sync until it is dropped.
+  String? _seriesId;
   RecurringScope _applyScope = RecurringScope.thisOnly;
 
   @override
@@ -79,7 +82,7 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
         _workshopDate = ws.workshopDate;
         _isRecurring = ws.isRecurring ?? false;
         _isActive = ws.isActive ?? true;
-        _recurringSeriesId = ws.recurringSeriesId;
+        _seriesId = ws.seriesId;
         _startTime = _parseTime(ws.startTime);
         _endTime = _parseTime(ws.endTime);
       });
@@ -144,6 +147,18 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
     setState(() => _saving = true);
     try {
       final repo = ref.read(workshopsRepositoryProvider);
+
+      // Ensure a recurring workshop ALWAYS has a series id, including when an
+      // existing non-recurring workshop is being flipped to recurring (the
+      // form was previously only generating an id on initial create).
+      // Without this, the saved row has is_recurring=true but series_id=null,
+      // which later breaks workshop_enrollments.
+      final needsNewSeriesId =
+          _isRecurring && (_seriesId == null || _seriesId!.isEmpty);
+      if (needsNewSeriesId) {
+        _seriesId = _generateUuid();
+      }
+
       final payload = <String, dynamic>{
         'title': _titleCtrl.text.trim(),
         'workshop_type': _workshopType,
@@ -157,18 +172,20 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
             : _notesCtrl.text.trim(),
         'is_recurring': _isRecurring,
         'is_active': _isActive,
-        if (_isRecurring && !_isEditing)
-          'recurring_series_id': _generateUuid(),
+        // Canonical column; WorkshopsRepository mirrors this into the
+        // legacy `recurring_series_id` column on save.
+        if (_isRecurring && needsNewSeriesId)
+          'series_id': _seriesId,
       };
 
       if (_isEditing) {
-        final applyToSeries = _recurringSeriesId != null &&
-            _applyScope == RecurringScope.series;
+        final applyToSeries =
+            _seriesId != null && _applyScope == RecurringScope.series;
         if (applyToSeries) {
           final seriesPayload = Map<String, dynamic>.from(payload)
             ..remove('workshop_date');
           await repo.updateSeries(
-            recurringSeriesId: _recurringSeriesId!,
+            seriesId: _seriesId!,
             fromDate: _workshopDate!,
             data: seriesPayload,
           );
@@ -187,8 +204,8 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
       if (_isEditing) {
         ref.invalidate(workshopByIdProvider(widget.workshopId!));
         ref.invalidate(workshopDetailsProvider(widget.workshopId!));
-        if (_recurringSeriesId != null) {
-          ref.invalidate(workshopSeriesByIdProvider(_recurringSeriesId!));
+        if (_seriesId != null) {
+          ref.invalidate(workshopSeriesByIdProvider(_seriesId!));
         }
       }
       if (kDebugMode) debugPrint('[Workshop] providers invalidated after save');
@@ -298,7 +315,7 @@ class _WorkshopFormPageState extends ConsumerState<WorkshopFormPage> {
                         onRecurringChanged: (v) =>
                             setState(() => _isRecurring = v),
                         isEditing: _isEditing,
-                        hasRecurringSeries: _recurringSeriesId != null,
+                        hasRecurringSeries: _seriesId != null,
                         applyScope: _applyScope,
                         onScopeChanged: (v) =>
                             setState(() => _applyScope = v),

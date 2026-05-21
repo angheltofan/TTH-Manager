@@ -184,9 +184,11 @@ class EnrollmentRepository {
 
   /// Ensures a `workshop_series` row exists for [seriesId].
   ///
-  /// Workshops created before the series-upsert fix may have a
-  /// `recurring_series_id` in `scheduled_workshops` but no corresponding
-  /// row in `workshop_series`. This method backfills it on demand.
+  /// Workshops created before the series-upsert fix may have a series
+  /// reference in `scheduled_workshops` (either `series_id` or the legacy
+  /// `recurring_series_id`) but no corresponding row in `workshop_series`.
+  /// This method backfills it on demand by reading metadata from any
+  /// matching scheduled session.
   Future<void> _ensureSeriesExists(String seriesId) async {
     final existing = await _client
         .from('workshop_series')
@@ -195,13 +197,15 @@ class EnrollmentRepository {
         .maybeSingle();
     if (existing != null) return;
 
-    // Fetch metadata from an existing session for this series.
+    // Fetch metadata from an existing session for this series, matching
+    // either the canonical `series_id` column or the legacy
+    // `recurring_series_id` column.
     final session = await _client
         .from('scheduled_workshops')
         .select(
             'title, workshop_type, day_of_week, start_time, end_time, '
             'trainer_id, notes, is_active')
-        .eq('recurring_series_id', seriesId)
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId')
         .limit(1)
         .maybeSingle();
     if (session == null) return;
@@ -277,6 +281,10 @@ class EnrollmentRepository {
 
   /// Deactivates a workshop series and all its future scheduled sessions.
   /// Existing enrollment and attendance data are preserved.
+  ///
+  /// The scheduled_workshops filter matches both the canonical `series_id`
+  /// column and the legacy `recurring_series_id` column so older sessions
+  /// that have not yet been backfilled are also deactivated.
   Future<void> deactivateSeries(String seriesId) async {
     if (kDebugMode) debugPrint('[Enrollment] deactivateSeries id=$seriesId');
     await _client
@@ -287,7 +295,7 @@ class EnrollmentRepository {
     await _client
         .from('scheduled_workshops')
         .update({'is_active': false})
-        .eq('recurring_series_id', seriesId)
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId')
         .gte('workshop_date', today);
   }
 }

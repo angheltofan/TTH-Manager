@@ -7,6 +7,34 @@ class NotificationsRepository {
 
   final SupabaseClient _client;
 
+  // ── Stale-notification filter ────────────────────────────────────────────
+  //
+  // Day-specific notifications (currently: child birthdays) are only relevant
+  // on the day they were generated. After midnight, yesterday's row is stale
+  // and must not appear on the full list, the bell dropdown, or the unread
+  // count badge.
+  //
+  // TODO(notifications-expiry): generalize once the `notifications` table has
+  // an `expires_at` (or `valid_until`) column populated by the generation
+  // trigger. Today only birthdays are detected client-side via title prefix.
+  // Until that schema change ships, every new day-specific notification type
+  // must add its detection here.
+  static bool _isStaleDaySpecific(AppNotification n, DateTime todayStart) {
+    final isBirthday = n.title.toLowerCase().startsWith('zi de na');
+    if (!isBirthday) return false;
+    final createdAt = n.createdAt;
+    if (createdAt == null) return true;
+    final createdLocal = createdAt.toLocal();
+    final createdDay =
+        DateTime(createdLocal.year, createdLocal.month, createdLocal.day);
+    return createdDay.isBefore(todayStart);
+  }
+
+  static DateTime _todayStart() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
   // ── All notifications (newest first) ─────────────────────────────────────
 
   Future<List<AppNotification>> fetchNotifications(String userId) async {
@@ -16,10 +44,12 @@ class NotificationsRepository {
         .eq('recipient_id', userId)
         .order('created_at', ascending: false)
         .limit(100);
-    return (data as List)
+    final all = (data as List)
         .cast<Map<String, dynamic>>()
         .map(AppNotification.fromMap)
         .toList();
+    final todayStart = _todayStart();
+    return all.where((n) => !_isStaleDaySpecific(n, todayStart)).toList();
   }
 
   // ── Recent notifications for the bell dropdown ───────────────────────────
@@ -55,33 +85,28 @@ class NotificationsRepository {
         .map(AppNotification.fromMap)
         .toList();
 
-    // Birthday notifications are only relevant on the day they were created.
-    // Filter out any birthday notification whose creation date is before today,
-    // even if it is unread (e.g. was generated yesterday and never opened).
-    final today = DateTime(now.year, now.month, now.day);
-    return all.where((n) {
-      final isBirthday = n.title.toLowerCase().startsWith('zi de na');
-      if (isBirthday) {
-        final createdAt = n.createdAt;
-        if (createdAt == null) return false;
-        final createdLocal = createdAt.toLocal();
-        final createdDay = DateTime(
-            createdLocal.year, createdLocal.month, createdLocal.day);
-        return !createdDay.isBefore(today);
-      }
-      return true;
-    }).toList();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    return all.where((n) => !_isStaleDaySpecific(n, todayStart)).toList();
   }
 
   // ── Unread count ──────────────────────────────────────────────────────────
+  //
+  // Fetches the unread set with the minimum columns needed to filter out
+  // stale day-specific notifications, so the badge stays in sync with the
+  // bell dropdown and the full list.
 
   Future<int> fetchUnreadCount(String userId) async {
     final data = await _client
         .from('notifications')
-        .select('id')
+        .select('id, title, created_at')
         .eq('recipient_id', userId)
         .eq('is_read', false);
-    return (data as List).length;
+    final rows = (data as List)
+        .cast<Map<String, dynamic>>()
+        .map(AppNotification.fromMap)
+        .toList();
+    final todayStart = _todayStart();
+    return rows.where((n) => !_isStaleDaySpecific(n, todayStart)).length;
   }
 
   // ── Mark as read ──────────────────────────────────────────────────────────

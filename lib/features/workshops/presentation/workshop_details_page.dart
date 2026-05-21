@@ -70,7 +70,10 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
           .read(workshopsRepositoryProvider)
           .cancelSession(widget.workshopId);
       if (kDebugMode) debugPrint('[Workshop] session cancelled');
+      // Await the details refresh so the page reflects the new state before
+      // any navigation away from here.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
+      await ref.read(workshopDetailsProvider(widget.workshopId).future);
       ref.invalidate(workshopByIdProvider(widget.workshopId));
       ref.invalidate(allScheduledWorkshopsProvider);
       ref.invalidate(todayWorkshopsProvider);
@@ -102,7 +105,11 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
             observation: observation,
             markedBy: user?.id ?? '',
           );
+      // Await the details refresh so the row's button color reflects the new
+      // attendance status before the spinner clears. Otherwise the button
+      // briefly shows the previous status until the cached provider catches up.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
+      await ref.read(workshopDetailsProvider(widget.workshopId).future);
       ref.invalidate(allChildrenProvider);
       ref.invalidate(weeklyAttendancesProvider);
       ref.invalidate(dashboardStatsProvider);
@@ -145,7 +152,10 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
             childIds: childIds,
             markedBy: user?.id ?? '',
           );
+      // Await the details refresh so all rows show their new attendance
+      // status before the "marking all" spinner clears.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
+      await ref.read(workshopDetailsProvider(widget.workshopId).future);
       if (kDebugMode) debugPrint('[Workshop] all present marked');
       ref.invalidate(allChildrenProvider);
       ref.invalidate(weeklyAttendancesProvider);

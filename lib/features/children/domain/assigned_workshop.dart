@@ -10,7 +10,7 @@ class AssignedWorkshop {
     required this.endTime,
     this.trainerId,
     this.trainerName,
-    this.recurringSeriesId,
+    this.seriesId,
     this.workshopDate,
     this.isActive,
   });
@@ -24,15 +24,21 @@ class AssignedWorkshop {
   final String? trainerId;
   final String? trainerName;
 
-  /// Identifies the recurring series this instance belongs to.
-  /// If null, this workshop has no recurrence — use [id] as the key.
-  final String? recurringSeriesId;
+  /// FK to `workshop_series.id` for the recurring series this instance
+  /// belongs to. Sourced from `scheduled_workshops.series_id` (preferred)
+  /// with fallback to the legacy `scheduled_workshops.recurring_series_id`
+  /// column. If null, this workshop has no recurrence — use [id] as the
+  /// dedup key.
+  final String? seriesId;
 
   /// The date of this specific weekly instance. Used only for dedup.
   final DateTime? workshopDate;
 
   /// Whether this instance is still active.
   final bool? isActive;
+
+  /// Backward-compat alias for callers that still read `recurringSeriesId`.
+  String? get recurringSeriesId => seriesId;
 
   /// Map comes from the `scheduled_workshops` node of the PostgREST join.
   /// Embedded `profiles` key provides trainer's first/last name.
@@ -55,7 +61,8 @@ class AssignedWorkshop {
       endTime: (map['end_time'] as String?) ?? '',
       trainerId: map['trainer_id'] as String?,
       trainerName: trainerName,
-      recurringSeriesId: map['recurring_series_id'] as String?,
+      seriesId: (map['series_id'] as String?) ??
+          (map['recurring_series_id'] as String?),
       workshopDate: map['workshop_date'] != null
           ? DateTime.tryParse(map['workshop_date'] as String)
           : null,
@@ -83,7 +90,7 @@ class AssignedWorkshop {
 
     final Map<String, List<AssignedWorkshop>> groups = {};
     for (final w in all) {
-      final key = w.recurringSeriesId ?? w.id;
+      final key = w.seriesId ?? w.id;
       groups.putIfAbsent(key, () => []).add(w);
     }
 

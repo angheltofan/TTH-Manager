@@ -485,13 +485,27 @@ class _SelectSeriesDialog extends ConsumerWidget {
               return const Text(
                   'Nu există serii active disponibile.');
             }
+            // Prefer series whose workshop_type matches the demo's type.
+            // Fall back to the full list if none match so the admin is never
+            // locked out of completing the conversion.
+            final demoTypeLower = demoType.trim().toLowerCase();
+            final matching = demoTypeLower.isEmpty
+                ? seriesList
+                : seriesList
+                    .where((s) =>
+                        (s.workshopType ?? '').trim().toLowerCase() ==
+                        demoTypeLower)
+                    .toList();
+            final visible =
+                matching.isNotEmpty ? matching : seriesList;
+
             return ListView.separated(
               shrinkWrap: true,
-              itemCount: seriesList.length,
-              separatorBuilder: (_, __) =>
+              itemCount: visible.length,
+              separatorBuilder: (_, _) =>
                   const Divider(height: 1),
               itemBuilder: (context, i) {
-                final s = seriesList[i];
+                final s = visible[i];
                 return ListTile(
                   title: Text(s.title),
                   subtitle: s.dayOfWeek != null

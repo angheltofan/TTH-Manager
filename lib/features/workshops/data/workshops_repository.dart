@@ -46,7 +46,10 @@ class WorkshopsRepository {
 
   /// Loads children for a workshop occurrence using series-level enrollment.
   ///
-  /// For recurring workshops: queries [workshop_enrollments] by [recurring_series_id].
+  /// For recurring workshops: queries [workshop_enrollments] by `series_id`.
+  /// The scheduled_workshops row is read with both `series_id` (canonical)
+  /// and `recurring_series_id` (legacy fallback) so older rows that have
+  /// not yet been backfilled still resolve to their series.
   /// Attendance is scoped to this specific occurrence only.
   Future<List<WorkshopDetailRow>> getDetails(String workshopId) async {
     // 1. Workshop metadata + trainer name
@@ -54,14 +57,18 @@ class WorkshopsRepository {
         .from('scheduled_workshops')
         .select(
           'id, title, workshop_type, workshop_date, day_of_week, '
-          'start_time, end_time, trainer_id, recurring_series_id, is_active, '
-          'profiles!trainer_id(first_name, last_name)',
+          'start_time, end_time, trainer_id, series_id, recurring_series_id, '
+          'is_active, profiles!trainer_id(first_name, last_name)',
         )
         .eq('id', workshopId)
         .maybeSingle();
     if (wsData == null) return [];
 
-    final seriesId = wsData['recurring_series_id'] as String?;
+    // Prefer the canonical `series_id` column. Fall back to the legacy
+    // `recurring_series_id` only if `series_id` is null (rows not yet
+    // backfilled by the server-side migration / RPC).
+    final seriesId = (wsData['series_id'] as String?) ??
+        (wsData['recurring_series_id'] as String?);
 
     // 2. Children enrolled in this series via workshop_enrollments
     final childMap = <String, Map<String, dynamic>>{};
@@ -171,12 +178,16 @@ class WorkshopsRepository {
 
   /// Creates a scheduled workshop session.
   ///
-  /// When [data] includes `is_recurring: true` and `recurring_series_id`,
-  /// a corresponding [workshop_series] row is upserted first so that
-  /// [workshop_enrollments.series_id] FK constraints are satisfied.
+  /// When [data] includes `is_recurring: true` and `series_id` (or the
+  /// legacy alias `recurring_series_id`), a corresponding [workshop_series]
+  /// row is upserted first so that [workshop_enrollments.series_id] FK
+  /// constraints are satisfied. Both `series_id` and `recurring_series_id`
+  /// are written to the scheduled_workshops row to keep the legacy column
+  /// in sync for any view or RPC that has not yet migrated.
   Future<void> create(Map<String, dynamic> data) async {
-    final isRecurring = data['is_recurring'] as bool? ?? false;
-    final seriesId = data['recurring_series_id'] as String?;
+    final payload = _normalizeSeriesIdKeys(data);
+    final isRecurring = payload['is_recurring'] as bool? ?? false;
+    final seriesId = payload['series_id'] as String?;
 
     if (isRecurring && seriesId != null) {
       if (kDebugMode) {
@@ -184,34 +195,85 @@ class WorkshopsRepository {
       }
       await _client.from('workshop_series').upsert({
         'id': seriesId,
-        'title': data['title'],
-        'workshop_type': data['workshop_type'],
-        'day_of_week': data['day_of_week'],
-        'start_time': data['start_time'],
-        'end_time': data['end_time'],
-        'trainer_id': data['trainer_id'],
-        'notes': data['notes'],
-        'is_active': data['is_active'] ?? true,
+        'title': payload['title'],
+        'workshop_type': payload['workshop_type'],
+        'day_of_week': payload['day_of_week'],
+        'start_time': payload['start_time'],
+        'end_time': payload['end_time'],
+        'trainer_id': payload['trainer_id'],
+        'notes': payload['notes'],
+        'is_active': payload['is_active'] ?? true,
       });
     }
 
     if (kDebugMode) debugPrint('[Workshops] insert scheduled_workshop');
-    await _client.from('scheduled_workshops').insert(data);
+    await _client.from('scheduled_workshops').insert(payload);
   }
 
   Future<void> update(String id, Map<String, dynamic> data) async {
-    await _client.from('scheduled_workshops').update(data).eq('id', id);
+    // Mirror create(): when the update flips a workshop into recurring mode
+    // (or heals a recurring row whose series_id was missing), upsert the
+    // matching workshop_series first so workshop_enrollments.series_id FK
+    // constraints can be satisfied. For ordinary recurring edits the form
+    // does NOT pass series_id in the payload, so this branch is skipped and
+    // only scheduled_workshops is touched.
+    final payload = _normalizeSeriesIdKeys(data);
+    final isRecurring = payload['is_recurring'] as bool? ?? false;
+    final seriesId = payload['series_id'] as String?;
+
+    if (isRecurring && seriesId != null) {
+      if (kDebugMode) {
+        debugPrint('[Workshops] update: upsert workshop_series id=$seriesId');
+      }
+      await _client.from('workshop_series').upsert({
+        'id': seriesId,
+        'title': payload['title'],
+        'workshop_type': payload['workshop_type'],
+        'day_of_week': payload['day_of_week'],
+        'start_time': payload['start_time'],
+        'end_time': payload['end_time'],
+        'trainer_id': payload['trainer_id'],
+        'notes': payload['notes'],
+        'is_active': payload['is_active'] ?? true,
+      });
+    }
+
+    await _client.from('scheduled_workshops').update(payload).eq('id', id);
+  }
+
+  /// Returns a copy of [data] where the series identifier is mirrored into
+  /// both `series_id` (canonical) and `recurring_series_id` (legacy) keys,
+  /// so the underlying scheduled_workshops row keeps both columns in sync.
+  ///
+  /// If the caller only provided one of the two keys, the other is filled in.
+  /// If neither key is present, the payload is returned unchanged.
+  Map<String, dynamic> _normalizeSeriesIdKeys(Map<String, dynamic> data) {
+    final newSeries = data['series_id'] as String?;
+    final legacySeries = data['recurring_series_id'] as String?;
+    final resolved = newSeries ?? legacySeries;
+    if (resolved == null) return Map<String, dynamic>.from(data);
+
+    final copy = Map<String, dynamic>.from(data);
+    copy['series_id'] = resolved;
+    copy['recurring_series_id'] = resolved;
+    return copy;
   }
 
   Future<void> delete(String id) async {
     await _client.from('scheduled_workshops').delete().eq('id', id);
   }
 
-  /// Updates all future active workshops that share the same [recurringSeriesId],
-  /// starting from [fromDate] (inclusive). Also syncs [workshop_series] metadata
-  /// so enrollment and series pages reflect the new values.
+  /// Updates all future active workshops that share the same series id,
+  /// starting from [fromDate] (inclusive). Also syncs [workshop_series]
+  /// metadata so enrollment and series pages reflect the new values.
+  ///
+  /// The scheduled_workshops filter uses an `.or()` clause to match rows
+  /// where either `series_id` (canonical) or the legacy
+  /// `recurring_series_id` equals the provided id, so legacy rows that
+  /// have not yet been backfilled are still updated together with newer
+  /// ones.
   Future<void> updateSeries({
-    required String recurringSeriesId,
+    required String seriesId,
     required DateTime fromDate,
     required Map<String, dynamic> data,
   }) async {
@@ -226,18 +288,18 @@ class WorkshopsRepository {
     };
     if (seriesFields.isNotEmpty) {
       if (kDebugMode) {
-        debugPrint('[Workshops] update workshop_series id=$recurringSeriesId');
+        debugPrint('[Workshops] update workshop_series id=$seriesId');
       }
       await _client
           .from('workshop_series')
           .update(seriesFields)
-          .eq('id', recurringSeriesId);
+          .eq('id', seriesId);
     }
 
     await _client
         .from('scheduled_workshops')
         .update(data)
-        .eq('recurring_series_id', recurringSeriesId)
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId')
         .eq('is_active', true)
         .gte('workshop_date', fromDate.toIso8601String().split('T').first);
   }

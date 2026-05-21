@@ -11,7 +11,7 @@ class ScheduledWorkshop {
     this.notes,
     this.isActive,
     this.isRecurring,
-    this.recurringSeriesId,
+    this.seriesId,
     this.createdAt,
     this.updatedAt,
   });
@@ -27,9 +27,18 @@ class ScheduledWorkshop {
   final String? notes;
   final bool? isActive;
   final bool? isRecurring;
-  final String? recurringSeriesId;
+
+  /// FK to `workshop_series.id`. Sourced from
+  /// `scheduled_workshops.series_id` (preferred) with fallback to the
+  /// legacy `scheduled_workshops.recurring_series_id` column for rows
+  /// not yet backfilled or produced by older RPCs.
+  final String? seriesId;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  /// Backward-compat alias for callers that still read `recurringSeriesId`.
+  String? get recurringSeriesId => seriesId;
 
   factory ScheduledWorkshop.fromMap(Map<String, dynamic> map) {
     return ScheduledWorkshop(
@@ -44,7 +53,8 @@ class ScheduledWorkshop {
       notes: map['notes'] as String?,
       isActive: map['is_active'] as bool?,
       isRecurring: map['is_recurring'] as bool?,
-      recurringSeriesId: map['recurring_series_id'] as String?,
+      seriesId: (map['series_id'] as String?) ??
+          (map['recurring_series_id'] as String?),
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : null,

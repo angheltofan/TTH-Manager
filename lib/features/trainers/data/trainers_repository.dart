@@ -131,12 +131,16 @@ class TrainersRepository {
   /// permanent assignments.
   Future<List<AssignedWorkshop>> fetchWorkshopsByTrainer(
       String trainerId) async {
+    // Select both the canonical `series_id` and the legacy
+    // `recurring_series_id` columns; AssignedWorkshop.fromMap prefers the
+    // canonical column and falls back to the legacy one for rows that
+    // have not yet been backfilled.
     final data = await _client
         .from('scheduled_workshops')
         .select(
           'id, title, workshop_type, day_of_week, start_time, end_time, '
-          'recurring_series_id, workshop_date, is_active, trainer_id, '
-          'profiles!trainer_id(first_name, last_name)',
+          'series_id, recurring_series_id, workshop_date, is_active, '
+          'trainer_id, profiles!trainer_id(first_name, last_name)',
         )
         .eq('trainer_id', trainerId);
 
