@@ -209,7 +209,7 @@ class WorkshopSeriesPage extends ConsumerWidget {
                                 physics:
                                     const NeverScrollableScrollPhysics(),
                                 itemCount: children.length,
-                                separatorBuilder: (_, __) => Divider(
+                                separatorBuilder: (_, _) => Divider(
                                   height: 1,
                                   indent: 20,
                                   color: theme.colorScheme.outline

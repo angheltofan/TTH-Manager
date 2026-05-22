@@ -193,8 +193,10 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
   /// All calls: marks the newest message as read and scrolls to newest.
   void _onMessagesAvailable(List<TeamChatMessage>? msgs) {
     if (!_capturedPreviousLastRead) {
-      // Snapshot the persisted value.  SharedPreferences loads fast so this
-      // is almost always the correct persisted timestamp by this point.
+      // Snapshot the value persisted on profiles.team_chat_last_read_at,
+      // exposed by chatLastReadAtProvider. The profile is typically loaded
+      // by AppShell before the chat page mounts, so this returns the correct
+      // DB-persisted timestamp on first read.
       _previousLastReadAt = ref.read(chatLastReadAtProvider);
       _capturedPreviousLastRead = true;
       if (kDebugMode) {
@@ -223,7 +225,7 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
     try {
       await ref
           .read(teamChatRepositoryProvider)
-          .sendMessage(body: body, senderId: user.id);
+          .sendMessage(body: body);
       _msgCtrl.clear();
       // Scroll to offset 0 = newest messages in reversed list.
       _scrollToNewest();
@@ -249,10 +251,12 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
     if (user == null) return;
     final profile = ref.read(currentProfileProvider).valueOrNull;
     final isAdmin = profile?.isAdmin ?? false;
+    final isStaff = profile?.isStaff ?? false;
     try {
       await ref.read(teamChatRepositoryProvider).softDeleteMessage(
             messageId: messageId,
             currentUserId: user.id,
+            isStaff: isStaff,
             isAdmin: isAdmin,
           );
       ref.invalidate(teamChatMessagesProvider);

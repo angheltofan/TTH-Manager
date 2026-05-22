@@ -2,7 +2,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../auth/providers/auth_providers.dart';
 import '../domain/app_notification.dart';
 import '../providers/notifications_providers.dart';
 import 'widgets/notifications_empty_state.dart';
@@ -43,11 +42,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
   }
 
   Future<void> _markAllAsRead() async {
-    final user = ref.read(currentUserProvider);
-    if (user == null) return;
-    await ref
-        .read(notificationsRepositoryProvider)
-        .markAllAsRead(user.id);
+    await ref.read(notificationsRepositoryProvider).markAllAsRead();
     ref.invalidate(notificationsProvider);
     ref.invalidate(recentNotificationsProvider);
     ref.invalidate(unreadCountFutureProvider);
@@ -57,7 +52,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     if (n.isRead) return;
     await ref
         .read(notificationsRepositoryProvider)
-        .markAsRead(n.id);
+        .markAsRead(notificationId: n.id);
     ref.invalidate(notificationsProvider);
     ref.invalidate(recentNotificationsProvider);
     ref.invalidate(unreadCountFutureProvider);

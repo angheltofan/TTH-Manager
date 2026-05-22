@@ -159,7 +159,56 @@ class ChildrenRepository {
     await _client.from('children').update(data).eq('id', id);
   }
 
-  Future<void> delete(String id) async {
-    await _client.from('children').delete().eq('id', id);
+  /// Soft-deactivates a child (archive flow).
+  ///
+  /// Sets `children.is_active = false` AND deactivates every active
+  /// `workshop_enrollments` row for the child so the child drops out of all
+  /// active rosters immediately. Historical data — attendance, payment
+  /// cycles, notifications, demo conversions — is preserved untouched.
+  ///
+  /// Reverse with [reactivateChild]; enrollments are **not** re-activated
+  /// automatically — admin must add the child back to each workshop.
+  Future<void> deactivateChild(String childId) async {
+    await _client
+        .from('children')
+        .update({'is_active': false})
+        .eq('id', childId);
+    await _client
+        .from('workshop_enrollments')
+        .update({'is_active': false})
+        .eq('child_id', childId)
+        .eq('is_active', true);
+  }
+
+  /// Reactivates a previously deactivated child.
+  ///
+  /// Only flips `children.is_active = true`. Workshop enrollments stay
+  /// deactivated by design — admin re-enrolls the child manually into the
+  /// workshops they should rejoin.
+  Future<void> reactivateChild(String childId) async {
+    await _client
+        .from('children')
+        .update({'is_active': true})
+        .eq('id', childId);
+  }
+
+  /// Permanently deletes a child and every dependent row.
+  ///
+  /// Backed by the `delete_child_completely` Postgres RPC
+  /// (SECURITY DEFINER, admin-only). The RPC clears
+  /// `demo_workshops.converted_child_id` references, then deletes from
+  /// `workshop_enrollments`, `attendance`, `payment_cycles`,
+  /// `notifications` (related_child_id), the legacy `workshop_children` /
+  /// `payments` / `child_progress` tables if they exist, and finally the
+  /// `children` row itself — all inside a single transaction with a row
+  /// lock on the child.
+  ///
+  /// Returns the deleted child id (echo from the RPC).
+  Future<String> deletePermanently(String childId) async {
+    final result = await _client.rpc(
+      'delete_child_completely',
+      params: {'p_child_id': childId},
+    );
+    return result as String;
   }
 }

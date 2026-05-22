@@ -7,32 +7,18 @@ class NotificationsRepository {
 
   final SupabaseClient _client;
 
-  // ── Stale-notification filter ────────────────────────────────────────────
+  // ── Server-side expiry filter ─────────────────────────────────────────────
   //
-  // Day-specific notifications (currently: child birthdays) are only relevant
-  // on the day they were generated. After midnight, yesterday's row is stale
-  // and must not appear on the full list, the bell dropdown, or the unread
-  // count badge.
+  // Day-specific notifications (e.g. child birthdays) are populated with an
+  // `expires_at` timestamp by the `generate_daily_notifications()` RPC.
+  // Permanent notifications (e.g. payment-due) leave `expires_at` NULL and
+  // remain visible until resolved by other logic.
   //
-  // TODO(notifications-expiry): generalize once the `notifications` table has
-  // an `expires_at` (or `valid_until`) column populated by the generation
-  // trigger. Today only birthdays are detected client-side via title prefix.
-  // Until that schema change ships, every new day-specific notification type
-  // must add its detection here.
-  static bool _isStaleDaySpecific(AppNotification n, DateTime todayStart) {
-    final isBirthday = n.title.toLowerCase().startsWith('zi de na');
-    if (!isBirthday) return false;
-    final createdAt = n.createdAt;
-    if (createdAt == null) return true;
-    final createdLocal = createdAt.toLocal();
-    final createdDay =
-        DateTime(createdLocal.year, createdLocal.month, createdLocal.day);
-    return createdDay.isBefore(todayStart);
-  }
-
-  static DateTime _todayStart() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
+  // Every read query AND-combines this PostgREST filter so expired rows
+  // never reach the bell, the badge, or the full list.
+  String _notExpiredFilter() {
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    return 'expires_at.is.null,expires_at.gt.$nowIso';
   }
 
   // ── All notifications (newest first) ─────────────────────────────────────
@@ -42,14 +28,13 @@ class NotificationsRepository {
         .from('notifications')
         .select()
         .eq('recipient_id', userId)
+        .or(_notExpiredFilter())
         .order('created_at', ascending: false)
         .limit(100);
-    final all = (data as List)
+    return (data as List)
         .cast<Map<String, dynamic>>()
         .map(AppNotification.fromMap)
         .toList();
-    final todayStart = _todayStart();
-    return all.where((n) => !_isStaleDaySpecific(n, todayStart)).toList();
   }
 
   // ── Recent notifications for the bell dropdown ───────────────────────────
@@ -58,15 +43,12 @@ class NotificationsRepository {
   //   • unread notifications (regardless of age), OR
   //   • notifications created today (regardless of read status).
   //
-  // Birthday or other info notifications from previous days will NOT appear
-  // here once they are read. They remain visible on the full /notifications
-  // page.
+  // Both branches are additionally AND-filtered against `expires_at`, so
+  // expired birthday rows from previous days never appear.
 
   Future<List<AppNotification>> fetchRecentNotifications(
       String userId) async {
     final now = DateTime.now();
-    // Local "today" start — YYYY-MM-DD.  PostgREST compares created_at
-    // (timestamptz) against this date string using >= operator.
     final todayStr =
         '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
@@ -77,48 +59,51 @@ class NotificationsRepository {
         .select()
         .eq('recipient_id', userId)
         .or('is_read.eq.false,created_at.gte.$todayStr')
+        .or(_notExpiredFilter())
         .order('created_at', ascending: false)
         .limit(20);
 
-    final all = (data as List)
+    return (data as List)
         .cast<Map<String, dynamic>>()
         .map(AppNotification.fromMap)
         .toList();
-
-    final todayStart = DateTime(now.year, now.month, now.day);
-    return all.where((n) => !_isStaleDaySpecific(n, todayStart)).toList();
   }
 
   // ── Unread count ──────────────────────────────────────────────────────────
   //
-  // Fetches the unread set with the minimum columns needed to filter out
-  // stale day-specific notifications, so the badge stays in sync with the
-  // bell dropdown and the full list.
+  // Lightweight count of unread, not-yet-expired notifications. Only the `id`
+  // column is selected since we no longer need to filter client-side.
 
   Future<int> fetchUnreadCount(String userId) async {
     final data = await _client
         .from('notifications')
-        .select('id, title, created_at')
+        .select('id')
         .eq('recipient_id', userId)
-        .eq('is_read', false);
-    final rows = (data as List)
-        .cast<Map<String, dynamic>>()
-        .map(AppNotification.fromMap)
-        .toList();
-    final todayStart = _todayStart();
-    return rows.where((n) => !_isStaleDaySpecific(n, todayStart)).length;
+        .eq('is_read', false)
+        .or(_notExpiredFilter());
+    return (data as List).length;
   }
 
   // ── Mark as read ──────────────────────────────────────────────────────────
+  //
+  // `recipient_id` is derived from the current Supabase auth user — RLS
+  // (`notifications_update_own_or_admin`) enforces the same constraint
+  // server-side. Filtering in Dart turns a malformed call into a clean
+  // 0-row update instead of an opaque RLS error.
 
-  Future<void> markAsRead(String notificationId) async {
+  Future<void> markAsRead({required String notificationId}) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
     await _client
         .from('notifications')
         .update({'is_read': true})
-        .eq('id', notificationId);
+        .eq('id', notificationId)
+        .eq('recipient_id', userId);
   }
 
-  Future<void> markAllAsRead(String userId) async {
+  Future<void> markAllAsRead() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
     await _client
         .from('notifications')
         .update({'is_read': true})
@@ -130,31 +115,13 @@ class NotificationsRepository {
   //
   // Calls the server-side `generate_daily_notifications()` SQL function which:
   //   • Inserts child birthday notifications for all admin/trainer recipients
-  //   • Avoids duplicates with NOT EXISTS checks
+  //   • Sets `event_date = current_date` and `expires_at = next midnight
+  //     Europe/Bucharest`, so the row drops out of the bell + badge after
+  //     the day ends without any client-side filtering.
+  //   • Uses `NOT EXISTS … AND n.event_date = today` to avoid duplicates.
   //
-  // SQL to create the function (run once in Supabase SQL editor):
-  //
-  //   CREATE OR REPLACE FUNCTION generate_daily_notifications()
-  //   RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-  //   DECLARE today date := current_date; BEGIN
-  //     INSERT INTO notifications (title, body, type, recipient_id, related_child_id)
-  //     SELECT
-  //       'Zi de naştere',
-  //       c.first_name || ' ' || c.last_name || ' îşi serbează ziua astăzi!',
-  //       'info', p.id, c.id
-  //     FROM children c CROSS JOIN profiles p
-  //     WHERE c.is_active = true
-  //       AND EXTRACT(MONTH FROM c.birth_date) = EXTRACT(MONTH FROM today)
-  //       AND EXTRACT(DAY   FROM c.birth_date) = EXTRACT(DAY   FROM today)
-  //       AND p.role IN ('admin', 'trainer')
-  //       AND NOT EXISTS (
-  //         SELECT 1 FROM notifications n
-  //         WHERE n.recipient_id = p.id
-  //           AND n.related_child_id = c.id
-  //           AND n.type = 'info'
-  //           AND DATE(n.created_at) = today
-  //       );
-  //   END; $$;
+  // Payment-due rows leave `expires_at` NULL: they remain visible until the
+  // payment is resolved by other logic.
 
   Future<void> generateDailyNotifications() async {
     await _client.rpc('generate_daily_notifications');

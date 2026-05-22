@@ -316,12 +316,14 @@ class WorkshopsRepository {
   // ── Attendance ────────────────────────────────────────────────────────────
 
   Future<void> markAttendance({
+    required bool isStaff,
     required String workshopId,
     required String childId,
     required String status,
     String? observation,
     required String markedBy,
   }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     await _client.from('attendance').upsert(
       {
         'scheduled_workshop_id': workshopId,
@@ -339,10 +341,12 @@ class WorkshopsRepository {
   /// Marks all given [childIds] as present for [workshopId].
   /// Preserves existing observation values (does not overwrite them).
   Future<void> markAllPresent({
+    required bool isStaff,
     required String workshopId,
     required List<String> childIds,
     required String markedBy,
   }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     if (childIds.isEmpty) return;
 
     // Fetch existing observations so they are preserved on upsert.

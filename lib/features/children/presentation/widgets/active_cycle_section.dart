@@ -118,6 +118,8 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
   Future<void> _onConfirm() async {
     final authUser = ref.read(currentUserProvider);
     if (authUser == null) return;
+    final isStaff =
+        ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
 
     final isDue = widget.dueGroup != null;
     final repo = ref.read(childDetailsRepositoryProvider);
@@ -129,6 +131,7 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
         final notes = 'Plată confirmată prin $method.';
         if (isDue) {
           await repo.confirmPayment(
+            isStaff: isStaff,
             cycleId: widget.dueGroup!.cycleId,
             userId: authUser.id,
             paymentMethod: methodLower,
@@ -137,7 +140,6 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
         } else {
           await repo.markAdvancePayment(
             childId: widget.childId,
-            currentUserId: authUser.id,
             paymentMethod: methodLower,
             notes: notes,
           );

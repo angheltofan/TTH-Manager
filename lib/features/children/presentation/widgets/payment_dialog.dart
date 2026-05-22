@@ -38,21 +38,30 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         children: [
           const Text('Alege metoda de plată.'),
           const SizedBox(height: 8),
-          RadioListTile<String>(
-            value: 'POS',
+          RadioGroup<String>(
             groupValue: _selected,
-            title: const Text('POS'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            onChanged: _loading ? null : (v) => setState(() => _selected = v!),
-          ),
-          RadioListTile<String>(
-            value: 'OP',
-            groupValue: _selected,
-            title: const Text('OP'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            onChanged: _loading ? null : (v) => setState(() => _selected = v!),
+            onChanged: (v) {
+              if (_loading || v == null) return;
+              setState(() => _selected = v);
+            },
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RadioListTile<String>(
+                  value: 'POS',
+                  title: Text('POS'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                RadioListTile<String>(
+                  value: 'OP',
+                  title: Text('OP'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
           ),
           if (_errorText != null) ...[
             const SizedBox(height: 8),

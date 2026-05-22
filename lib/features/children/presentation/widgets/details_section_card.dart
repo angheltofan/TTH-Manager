@@ -56,7 +56,7 @@ class DetailsSectionCard extends StatelessWidget {
                       ?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ),
-              if (trailing != null) trailing!,
+              ?trailing,
             ],
           ),
           const SizedBox(height: 16),

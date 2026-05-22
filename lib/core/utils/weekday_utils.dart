@@ -1,7 +1,7 @@
-/// Day-of-week index helpers for consistent Romanian + English weekday ordering.
-///
-/// Returns 0 for Monday, 6 for Sunday, and 99 for unrecognised values
-/// (unknown days sort to the end rather than crashing).
+// Day-of-week index helpers for consistent Romanian + English weekday ordering.
+//
+// Returns 0 for Monday, 6 for Sunday, and 99 for unrecognised values
+// (unknown days sort to the end rather than crashing).
 
 const Map<String, int> _kWeekdayOrder = {
   // Romanian canonical + common variant spellings

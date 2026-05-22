@@ -98,7 +98,10 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
     setState(() => _marking.add(childId));
     try {
       final user = ref.read(currentUserProvider);
+      final isStaff =
+          ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
       await ref.read(workshopsRepositoryProvider).markAttendance(
+            isStaff: isStaff,
             workshopId: widget.workshopId,
             childId: childId,
             status: status,
@@ -147,7 +150,10 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
     setState(() => _markingAll = true);
     try {
       final user = ref.read(currentUserProvider);
+      final isStaff =
+          ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
       await ref.read(workshopsRepositoryProvider).markAllPresent(
+            isStaff: isStaff,
             workshopId: widget.workshopId,
             childIds: childIds,
             markedBy: user?.id ?? '',

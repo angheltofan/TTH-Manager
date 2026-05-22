@@ -80,7 +80,7 @@ class SettingsPage extends ConsumerWidget {
                   title: '...',
                   subtitle: '',
                 ),
-                error: (_, __) => const _SettingsTile(
+                error: (_, _) => const _SettingsTile(
                   icon: Icons.badge_outlined,
                   title: 'Utilizator',
                   subtitle: '',

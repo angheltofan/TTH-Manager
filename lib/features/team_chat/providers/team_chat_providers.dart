@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
@@ -22,48 +21,54 @@ final teamChatMessagesProvider =
   return ref.watch(teamChatRepositoryProvider).fetchMessages();
 });
 
-// ── Last-read timestamp (persisted via SharedPreferences per user) ────────────
+// ── Last-read timestamp (persisted on profiles.team_chat_last_read_at) ────────
 
 class _ChatLastReadAtNotifier extends StateNotifier<DateTime?> {
-  _ChatLastReadAtNotifier(this._userId) : super(null) {
-    if (_userId != null) _load();
-  }
+  _ChatLastReadAtNotifier({
+    required SupabaseClient client,
+    required String? userId,
+    required DateTime? initial,
+  })  : _client = client,
+        _userId = userId,
+        super(initial);
 
+  final SupabaseClient _client;
   final String? _userId;
-  static const _keyPrefix = 'team_chat_last_read_at_';
 
-  String? get _key =>
-      _userId != null ? '$_keyPrefix$_userId' : null;
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final ms = prefs.getInt(_key!);
-    if (mounted && ms != null) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-      if (kDebugMode) debugPrint('[Chat] loaded lastReadAt=$dt');
-      state = dt;
-    }
-  }
-
-  /// Updates state immediately (badge clears at once) and persists to prefs.
+  /// Updates state immediately (badge clears at once) and persists to
+  /// `profiles.team_chat_last_read_at`. RLS `profiles_update_self` restricts
+  /// the write to the caller's own row.
   Future<void> markRead(DateTime time) async {
     state = time;
-    if (kDebugMode) debugPrint('[Chat] saved lastReadAt=$time');
-    final key = _key;
-    if (key == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(key, time.millisecondsSinceEpoch);
+    if (kDebugMode) debugPrint('[Chat] markRead lastReadAt=$time');
+    final userId = _userId;
+    if (userId == null) return;
+    try {
+      await _client
+          .from('profiles')
+          .update({'team_chat_last_read_at': time.toIso8601String()})
+          .eq('id', userId);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Chat] markRead persist failed: $e');
+    }
   }
 }
 
 /// Persisted last-read timestamp for the current user.
-/// Keyed by user ID so switching accounts works correctly.
-/// State starts as [null] while SharedPreferences loads, then updates once the
-/// async read completes (fast — typically < 5 ms after first access).
+/// Source of truth: `profiles.team_chat_last_read_at`. Initial state is taken
+/// from [currentProfileProvider]; rebuilds whenever the user or their profile
+/// changes (sign-in, sign-out, account switch).
 final chatLastReadAtProvider =
     StateNotifierProvider<_ChatLastReadAtNotifier, DateTime?>((ref) {
   final userId = ref.watch(currentUserProvider)?.id;
-  return _ChatLastReadAtNotifier(userId);
+  final initial =
+      ref.watch(currentProfileProvider).valueOrNull?.teamChatLastReadAt;
+  final client = ref.watch(supabaseClientProvider);
+  return _ChatLastReadAtNotifier(
+    client: client,
+    userId: userId,
+    initial: initial,
+  );
 });
 
 // ── Unread count ──────────────────────────────────────────────────────────────

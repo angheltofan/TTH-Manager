@@ -47,7 +47,7 @@ class AppDesktopTopBar extends ConsumerWidget {
                         ref.read(authRepositoryProvider).signOut(),
                   ),
                   loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
                 ),
               ],
             ),

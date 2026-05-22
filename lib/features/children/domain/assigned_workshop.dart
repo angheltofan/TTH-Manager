@@ -1,5 +1,7 @@
 /// A workshop that a child is assigned to, enriched with trainer name.
-/// Parsed from workshop_children → scheduled_workshops → profiles join.
+/// Parsed from a `scheduled_workshops` row joined with `profiles` (trainer
+/// first/last name). The optional `series_id` (with legacy fallback to
+/// `recurring_series_id`) links the instance back to its `workshop_series`.
 class AssignedWorkshop {
   const AssignedWorkshop({
     required this.id,

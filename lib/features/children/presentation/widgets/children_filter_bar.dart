@@ -26,9 +26,13 @@ class ChildrenFilterBar extends ConsumerWidget {
     final trainers = ref.watch(childrenTrainersProvider);
     final currentWorkshop = ref.watch(childrenWorkshopFilterProvider);
     final currentTrainer = ref.watch(childrenTrainerFilterProvider);
+    final currentActive = ref.watch(childrenActiveFilterProvider);
+    // The default for the status filter is 'active'; anything else counts
+    // as a non-default state that the clear-filters button should reset.
     final hasFilters = ref.watch(childrenSearchProvider).isNotEmpty ||
         currentWorkshop != null ||
-        currentTrainer != null;
+        currentTrainer != null ||
+        currentActive != 'active';
     final showTrainerFilter = !isTrainer;
 
     final inputBorder = OutlineInputBorder(
@@ -62,7 +66,8 @@ class ChildrenFilterBar extends ConsumerWidget {
     );
 
     final workshopW = DropdownButtonFormField<String>(
-      value: currentWorkshop,
+      key: ValueKey('filter-workshop-$currentWorkshop'),
+      initialValue: currentWorkshop,
       isExpanded: true,
       decoration: dropDeco.copyWith(hintText: 'Toate atelierele'),
       items: [
@@ -77,7 +82,8 @@ class ChildrenFilterBar extends ConsumerWidget {
     );
 
     final trainerW = DropdownButtonFormField<String>(
-      value: currentTrainer,
+      key: ValueKey('filter-trainer-$currentTrainer'),
+      initialValue: currentTrainer,
       isExpanded: true,
       decoration: dropDeco.copyWith(hintText: 'Toți trainerii'),
       items: [
@@ -87,6 +93,24 @@ class ChildrenFilterBar extends ConsumerWidget {
       ],
       onChanged: (v) {
         ref.read(childrenTrainerFilterProvider.notifier).state = v;
+        ref.read(childrenPageProvider.notifier).state = 0;
+      },
+    );
+
+    // Status filter: Active / Inactive / All.
+    // Default is 'active' (managed by childrenActiveFilterProvider).
+    final activeW = DropdownButtonFormField<String?>(
+      key: ValueKey('filter-active-$currentActive'),
+      initialValue: currentActive,
+      isExpanded: true,
+      decoration: dropDeco.copyWith(hintText: 'Status'),
+      items: const [
+        DropdownMenuItem<String?>(value: 'active', child: Text('Activi')),
+        DropdownMenuItem<String?>(value: 'inactive', child: Text('Inactivi')),
+        DropdownMenuItem<String?>(value: null, child: Text('Toți')),
+      ],
+      onChanged: (v) {
+        ref.read(childrenActiveFilterProvider.notifier).state = v;
         ref.read(childrenPageProvider.notifier).state = 0;
       },
     );
@@ -114,6 +138,8 @@ class ChildrenFilterBar extends ConsumerWidget {
       return Row(children: [
         searchW,
         const SizedBox(width: 10),
+        SizedBox(width: 140, child: activeW),
+        const SizedBox(width: 10),
         SizedBox(width: 180, child: workshopW),
         if (showTrainerFilter) ...[
           const SizedBox(width: 10),
@@ -130,12 +156,18 @@ class ChildrenFilterBar extends ConsumerWidget {
         const SizedBox(height: 10),
         if (showTrainerFilter)
           Row(children: [
+            Expanded(child: activeW),
+            const SizedBox(width: 10),
             Expanded(child: workshopW),
             const SizedBox(width: 10),
             Expanded(child: trainerW),
           ])
         else
-          workshopW,
+          Row(children: [
+            Expanded(child: activeW),
+            const SizedBox(width: 10),
+            Expanded(child: workshopW),
+          ]),
         const SizedBox(height: 10),
         if (hasFilters) ...[const SizedBox(height: 10), clearW],
       ],

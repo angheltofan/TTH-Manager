@@ -148,11 +148,14 @@ class PaymentStatusCard extends ConsumerWidget {
       BuildContext context, WidgetRef ref, String cycleId) async {
     final authUser = ref.read(currentUserProvider);
     if (authUser == null) return;
+    final isStaff =
+        ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
 
     final result = await showPaymentMethodDialog(
       context,
       onConfirm: (method) async {
         await ref.read(childDetailsRepositoryProvider).confirmPayment(
+          isStaff: isStaff,
           cycleId: cycleId,
           userId: authUser.id,
           paymentMethod: method.toLowerCase(), // 'pos' or 'op'

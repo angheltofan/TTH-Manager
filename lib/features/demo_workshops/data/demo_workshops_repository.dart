@@ -4,6 +4,23 @@ import '../../../core/utils/weekday_utils.dart';
 import '../../workshops/domain/workshop_series.dart';
 import '../domain/demo_workshop.dart';
 
+/// Outcome of [DemoWorkshopsRepository.convertDemoToEnrollment].
+///
+/// [enrollmentCreated] is false when the demo had already been converted
+/// (idempotent re-call): the function returned the previously linked
+/// child + series without writing.
+class DemoConversionResult {
+  const DemoConversionResult({
+    required this.childId,
+    required this.seriesId,
+    required this.enrollmentCreated,
+  });
+
+  final String childId;
+  final String seriesId;
+  final bool enrollmentCreated;
+}
+
 class DemoWorkshopsRepository {
   const DemoWorkshopsRepository(this._client);
 
@@ -95,7 +112,12 @@ class DemoWorkshopsRepository {
 
   // ── Conversion ────────────────────────────────────────────────────────────
 
-  /// Looks for an existing active child with matching name + phone.
+  /// Looks for an existing **active** child with matching name + phone.
+  ///
+  /// Inactive (archived) children are excluded so the conversion picker
+  /// does not silently re-attach a demo to an archived child. If the
+  /// admin needs to re-link to an archived child they must reactivate
+  /// it first from the children page.
   Future<Map<String, dynamic>?> findExistingChild({
     required String firstName,
     required String lastName,
@@ -104,6 +126,7 @@ class DemoWorkshopsRepository {
     var query = _client
         .from('children')
         .select('id, first_name, last_name, parent_phone, is_active')
+        .eq('is_active', true)
         .ilike('first_name', firstName)
         .ilike('last_name', lastName);
     if (phone != null && phone.isNotEmpty) {
@@ -113,46 +136,40 @@ class DemoWorkshopsRepository {
     return data;
   }
 
-  /// Creates a new child row and returns the new id.
-  Future<String> createChild(Map<String, dynamic> childData) async {
-    final result = await _client
-        .from('children')
-        .insert(childData)
-        .select('id')
-        .single();
-    return result['id'] as String;
-  }
-
-  /// Enrolls a child into a workshop series (upsert to avoid duplicates).
-  Future<void> enrollChild({
-    required String childId,
-    required String seriesId,
-    required String enrolledBy,
-  }) async {
-    await _client.from('workshop_enrollments').upsert(
-      {
-        'child_id': childId,
-        'series_id': seriesId,
-        'is_active': true,
-        'enrolled_by': enrolledBy,
-        'enrolled_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      onConflict: 'child_id,series_id',
-    );
-  }
-
-  /// Marks the demo as converted and stores the linked child/series ids.
-  Future<void> markConverted({
+  /// Atomically converts a scheduled demo into a real enrollment.
+  ///
+  /// Wraps the previous 3-step Dart flow (createChild → enrollChild →
+  /// markConverted) into a single transaction via the
+  /// `convert_demo_to_enrollment` Postgres RPC (SECURITY INVOKER).
+  ///
+  /// The RPC:
+  ///   • locks the demo row with FOR UPDATE,
+  ///   • is idempotent: a second call on an already-converted demo returns
+  ///     the existing linkage with [DemoConversionResult.enrollmentCreated]
+  ///     false (no rows are written),
+  ///   • creates a new child when [existingChildId] is null, otherwise
+  ///     re-uses the provided child,
+  ///   • upserts `workshop_enrollments(series_id, child_id)`,
+  ///   • flips the demo to status='converted' and stores the linkage.
+  Future<DemoConversionResult> convertDemoToEnrollment({
     required String demoId,
-    required String childId,
     required String seriesId,
+    String? existingChildId,
   }) async {
-    await _client.from('demo_workshops').update({
-      'status': 'converted',
-      'converted_child_id': childId,
-      'converted_series_id': seriesId,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', demoId);
+    final raw = await _client.rpc(
+      'convert_demo_to_enrollment',
+      params: {
+        'p_demo_id': demoId,
+        'p_series_id': seriesId,
+        'p_existing_child_id': existingChildId,
+      },
+    );
+    final map = (raw as Map).cast<String, dynamic>();
+    return DemoConversionResult(
+      childId: map['child_id'] as String,
+      seriesId: map['series_id'] as String,
+      enrollmentCreated: (map['enrollment_created'] as bool?) ?? false,
+    );
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

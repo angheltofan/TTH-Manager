@@ -12,6 +12,8 @@ class AppNotification {
     this.createdAt,
     this.actionUrl,
     this.priority,
+    this.expiresAt,
+    this.eventDate,
   });
 
   final String id;
@@ -31,6 +33,14 @@ class AppNotification {
   /// `high` | `normal` | `low` | null
   final String? priority;
 
+  /// Moment after which the notification is no longer shown in the bell or
+  /// badge. NULL means the notification never expires.
+  final DateTime? expiresAt;
+
+  /// Logical date the notification refers to (birthday date, workshop date).
+  /// Used server-side by the generator's duplicate guard.
+  final DateTime? eventDate;
+
   bool get isHighPriority => priority == 'high';
 
   factory AppNotification.fromMap(Map<String, dynamic> map) => AppNotification(
@@ -47,5 +57,11 @@ class AppNotification {
             : null,
         actionUrl: map['action_url'] as String?,
         priority: map['priority'] as String?,
+        expiresAt: map['expires_at'] != null
+            ? DateTime.tryParse(map['expires_at'] as String)
+            : null,
+        eventDate: map['event_date'] != null
+            ? DateTime.tryParse(map['event_date'] as String)
+            : null,
       );
 }

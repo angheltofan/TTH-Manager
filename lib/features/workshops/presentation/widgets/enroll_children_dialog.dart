@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/providers/auth_providers.dart';
 import '../../providers/enrollment_providers.dart';
 
 /// Dialog for enrolling multiple children in a workshop series.
@@ -171,10 +172,13 @@ class _EnrollChildrenDialogState
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
+      final isStaff =
+          ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
       await ref
           .read(enrollmentRepositoryProvider)
           .enrollChildrenInWorkshopSeries(
-              widget.seriesId, _selected.toList());
+              widget.seriesId, _selected.toList(),
+              isStaff: isStaff);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {

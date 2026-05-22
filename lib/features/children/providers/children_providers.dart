@@ -30,8 +30,12 @@ final allChildrenProvider = FutureProvider<List<ChildRow>>((ref) {
 
 final childrenSearchProvider = StateProvider<String>((ref) => '');
 
-/// null = all, 'active' = active only, 'inactive' = inactive only
-final childrenActiveFilterProvider = StateProvider<String?>((ref) => null);
+/// 'active' = active only (default), 'inactive' = inactive only, null = all.
+///
+/// Defaults to 'active' so the children page hides archived rows from the
+/// default operational view. Users opt into inactives via the Status dropdown
+/// in [ChildrenFilterBar].
+final childrenActiveFilterProvider = StateProvider<String?>((ref) => 'active');
 
 /// workshop id to filter by, or null for all
 final childrenWorkshopFilterProvider = StateProvider<String?>((ref) => null);
@@ -155,12 +159,6 @@ final childAttendanceHistoryProvider =
     return repo.getAttendanceHistoryForTrainerFull(childId, profile!.id);
   }
   return repo.getAttendanceHistoryFull(childId);
-});
-
-final childPaymentsProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, String>(
-        (ref, childId) {
-  return ref.watch(childAttendanceRepositoryProvider).getPayments(childId);
 });
 
 final childActivityHistoryProvider = FutureProvider.family<

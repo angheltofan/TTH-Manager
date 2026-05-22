@@ -25,10 +25,17 @@ class TeamChatRepository {
   }
 
   /// Inserts a new message. [body] must already be trimmed.
-  Future<void> sendMessage({
-    required String body,
-    required String senderId,
-  }) async {
+  ///
+  /// `sender_id` is derived from the current Supabase auth user. RLS
+  /// (`team_chat_insert_staff_self`) additionally enforces
+  /// `sender_id = auth.uid()` server-side.
+  Future<void> sendMessage({required String body}) async {
+    final senderId = _client.auth.currentUser?.id;
+    if (senderId == null) {
+      throw StateError(
+        'Cannot send chat message — no authenticated user.',
+      );
+    }
     await _client.from('team_chat_messages').insert({
       'sender_id': senderId,
       'body': body,
@@ -46,8 +53,10 @@ class TeamChatRepository {
   Future<void> softDeleteMessage({
     required String messageId,
     required String currentUserId,
+    required bool isStaff,
     bool isAdmin = false,
   }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     var query = _client
         .from('team_chat_messages')
         .update({'is_deleted': true})

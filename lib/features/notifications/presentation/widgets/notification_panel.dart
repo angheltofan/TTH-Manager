@@ -142,7 +142,7 @@ class NotificationDropdown extends ConsumerWidget {
                         if (!n.isRead) {
                           await ref
                               .read(notificationsRepositoryProvider)
-                              .markAsRead(n.id);
+                              .markAsRead(notificationId: n.id);
                           ref.invalidate(notificationsProvider);
                           ref.invalidate(unreadCountFutureProvider);
                         }

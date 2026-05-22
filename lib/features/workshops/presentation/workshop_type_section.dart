@@ -77,7 +77,8 @@ class WorkshopTypeSection extends StatelessWidget {
       label: 'Tip atelier',
       required: true,
       child: DropdownButtonFormField<String>(
-        value: workshopType,
+        key: ValueKey('workshop-type-$workshopType'),
+        initialValue: workshopType,
         decoration: workshopInputDecoration(theme),
         hint: const Text('Selectează tipul'),
         items: _workshopTypeOptions
@@ -96,7 +97,8 @@ class WorkshopTypeSection extends StatelessWidget {
       label: 'Ziua săptămânii',
       required: true,
       child: DropdownButtonFormField<String>(
-        value: dayOfWeek,
+        key: ValueKey('workshop-day-$dayOfWeek'),
+        initialValue: dayOfWeek,
         decoration: workshopInputDecoration(theme),
         hint: const Text('Selectează ziua'),
         items: _daysOfWeek

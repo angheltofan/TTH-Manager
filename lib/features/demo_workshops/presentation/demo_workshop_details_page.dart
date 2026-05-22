@@ -66,9 +66,8 @@ class _DemoWorkshopDetailsPageState
 
   Future<void> _convert(DemoWorkshop demo) async {
     final repo = ref.read(demoWorkshopsRepositoryProvider);
-    final userId = ref.read(currentUserProvider)?.id ?? '';
 
-    // Step 1: check for existing child
+    // Step 1: look for an existing child matching name + phone.
     final existing = await repo.findExistingChild(
       firstName: demo.childFirstName,
       lastName: demo.childLastName,
@@ -77,10 +76,9 @@ class _DemoWorkshopDetailsPageState
 
     if (!mounted) return;
 
-    String? childId;
+    String? existingChildId;
 
     if (existing != null) {
-      // Ask admin to confirm linking
       final link = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -101,11 +99,11 @@ class _DemoWorkshopDetailsPageState
       );
       if (!mounted) return;
       if (link == true) {
-        childId = existing['id'] as String;
+        existingChildId = existing['id'] as String;
       }
     }
 
-    // Step 2: pick workshop series
+    // Step 2: pick workshop series.
     if (!mounted) return;
     final seriesId = await showDialog<String>(
       context: context,
@@ -113,29 +111,18 @@ class _DemoWorkshopDetailsPageState
     );
     if (seriesId == null || !mounted) return;
 
+    // Step 3: single atomic RPC call.
+    // The RPC creates the child (if needed), upserts the enrollment, and
+    // flips the demo to status='converted' in one transaction. Idempotent
+    // re-call returns enrollmentCreated=false.
     setState(() => _busy = true);
     try {
-      // Create child if not linking to existing
-      if (childId == null) {
-        childId = await repo.createChild({
-          'first_name': demo.childFirstName,
-          'last_name': demo.childLastName,
-          if (demo.parentName != null) 'parent_name': demo.parentName,
-          if (demo.parentPhone != null) 'parent_phone': demo.parentPhone,
-          if (demo.parentEmail != null) 'parent_email': demo.parentEmail,
-          'is_active': true,
-        });
-      }
-
-      // Enroll into series
-      await repo.enrollChild(
-          childId: childId, seriesId: seriesId, enrolledBy: userId);
-
-      // Mark demo as converted
-      await repo.markConverted(
-          demoId: widget.demoId,
-          childId: childId,
-          seriesId: seriesId);
+      final result = await repo.convertDemoToEnrollment(
+        demoId: widget.demoId,
+        seriesId: seriesId,
+        existingChildId: existingChildId,
+      );
+      final childId = result.childId;
 
       ref.invalidate(demoWorkshopByIdProvider(widget.demoId));
       ref.invalidate(todayDemoWorkshopsProvider);
@@ -144,17 +131,16 @@ class _DemoWorkshopDetailsPageState
       ref.invalidate(activeWorkshopSeriesProvider);
       ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
       ref.invalidate(availableChildrenForSeriesProvider(seriesId));
-      // After step 1 (createChild / link existing), childId is guaranteed
-      // non-null — the analyzer flagged the previous null-check/`!` chain.
       ref.invalidate(childWorkshopSeriesProvider(childId));
       ref.invalidate(childByIdProvider(childId));
       ref.invalidate(childCurrentStatusProvider(childId));
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Copilul a fost înscris cu succes.')),
-        );
+        final msg = result.enrollmentCreated
+            ? 'Copilul a fost înscris cu succes.'
+            : 'Demo-ul este deja convertit.';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
       if (mounted) {

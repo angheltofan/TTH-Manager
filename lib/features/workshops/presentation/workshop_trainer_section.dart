@@ -48,7 +48,8 @@ class WorkshopTrainerSection extends ConsumerWidget {
             });
           }
           return DropdownButtonFormField<String>(
-            value: safeId,
+            key: ValueKey('workshop-trainer-$safeId'),
+            initialValue: safeId,
             decoration: workshopInputDecoration(theme),
             hint: const Text('Selectează trainer'),
             items: trainers

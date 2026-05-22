@@ -119,11 +119,13 @@ class ChildDetailsRepository {
   // ── Confirm payment for a cycle ──────────────────────────────────────────
 
   Future<void> confirmPayment({
+    required bool isStaff,
     required String cycleId,
     required String userId,
     required String paymentMethod,
     String notes = '',
   }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     await _client
         .from('payment_cycles')
         .update({
@@ -136,42 +138,33 @@ class ChildDetailsRepository {
         .eq('id', cycleId);
   }
 
-  // ── Create advance payment cycle (direct INSERT, no row linking) ──────────
+  // ── Create or update advance payment cycle ───────────────────────────────
+  // Backed by the `upsert_advance_payment` Postgres RPC (SECURITY INVOKER),
+  // which performs an INSERT … ON CONFLICT (child_id) WHERE status='paid_advance'
+  // DO UPDATE. The partial unique index
+  // `uq_payment_cycles_one_advance_per_child` guarantees at most one
+  // paid_advance cycle per child even under concurrent calls from multiple
+  // devices.
+  //
+  // The RPC derives `confirmed_by` from `auth.uid()` server-side and gates
+  // by `is_admin() OR is_trainer_for_child(p_child_id)` (Phase 6C-2). The
+  // client therefore no longer passes a user id.
+  //
   // Does NOT set payment_cycle_id on attendance rows.
   // Rows stay in child_current_status_rows until the cycle closes at 4 presents.
 
   Future<void> markAdvancePayment({
     required String childId,
-    required String currentUserId,
     required String paymentMethod,
     String notes = '',
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    // Upsert: update existing paid_advance cycle instead of creating duplicates.
-    final existing = await _client
-        .from('payment_cycles')
-        .select('id')
-        .eq('child_id', childId)
-        .eq('status', 'paid_advance')
-        .maybeSingle();
-
-    if (existing != null) {
-      await _client.from('payment_cycles').update({
-        'paid_at': now,
-        'confirmed_by': currentUserId,
-        'payment_method': paymentMethod, // 'pos' or 'op'
-        if (notes.isNotEmpty) 'notes': notes,
-      }).eq('id', existing['id'] as String);
-    } else {
-      await _client.from('payment_cycles').insert({
-        'child_id': childId,
-        'status': 'paid_advance',
-        'paid_at': now,
-        'confirmed_by': currentUserId,
-        'payment_method': paymentMethod, // 'pos' or 'op'
-        if (notes.isNotEmpty) 'notes': notes,
-      });
-    }
+    await _client.rpc(
+      'upsert_advance_payment',
+      params: {
+        'p_child_id': childId,
+        'p_payment_method': paymentMethod, // 'pos' or 'op'
+        'p_notes': notes.isEmpty ? null : notes,
+      },
+    );
   }
 }

@@ -63,7 +63,7 @@ class ChildFormOther extends StatelessWidget {
             ),
             Switch.adaptive(
               value: isActive,
-              activeColor: AppColors.purple,
+              activeThumbColor: AppColors.purple,
               onChanged: onActiveChanged,
             ),
           ]),

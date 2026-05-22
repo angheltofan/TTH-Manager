@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
+import '../../../auth/providers/auth_providers.dart';
 import '../../../workshops/providers/enrollment_providers.dart';
 
 /// Single-select dialog for enrolling a child in a workshop series.
@@ -125,45 +126,47 @@ class _AddToWorkshopDialogState
                     );
                   }
 
-                  return ListView.builder(
-                    itemCount: filtered.length,
-                    itemBuilder: (_, i) {
-                      final s = filtered[i];
-                      final endLabel = s.endTime != null
-                          ? formatTimeString(s.endTime!)
-                          : '';
-                      final timeLabel =
-                          '${formatTimeString(s.startTime)} – $endLabel';
-                      final subtitle = [
-                        if (s.workshopType != null &&
-                            s.workshopType!.isNotEmpty)
-                          s.workshopType!,
-                        if (s.dayOfWeek != null &&
-                            s.dayOfWeek!.isNotEmpty)
-                          s.dayOfWeek!,
-                        timeLabel,
-                      ].join(' · ');
+                  return RadioGroup<String>(
+                    groupValue: _selectedSeriesId,
+                    onChanged: (v) =>
+                        setState(() => _selectedSeriesId = v),
+                    child: ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        final s = filtered[i];
+                        final endLabel = s.endTime != null
+                            ? formatTimeString(s.endTime!)
+                            : '';
+                        final timeLabel =
+                            '${formatTimeString(s.startTime)} – $endLabel';
+                        final subtitle = [
+                          if (s.workshopType != null &&
+                              s.workshopType!.isNotEmpty)
+                            s.workshopType!,
+                          if (s.dayOfWeek != null &&
+                              s.dayOfWeek!.isNotEmpty)
+                            s.dayOfWeek!,
+                          timeLabel,
+                        ].join(' · ');
 
-                      return RadioListTile<String>(
-                        value: s.id,
-                        groupValue: _selectedSeriesId,
-                        onChanged: (v) =>
-                            setState(() => _selectedSeriesId = v),
-                        title: Text(
-                          s.title,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: subtitle.isNotEmpty
-                            ? Text(subtitle,
-                                style: theme.textTheme.bodySmall)
-                            : null,
-                        dense: true,
-                        activeColor: AppColors.purple,
-                        controlAffinity:
-                            ListTileControlAffinity.leading,
-                      );
-                    },
+                        return RadioListTile<String>(
+                          value: s.id,
+                          title: Text(
+                            s.title,
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: subtitle.isNotEmpty
+                              ? Text(subtitle,
+                                  style: theme.textTheme.bodySmall)
+                              : null,
+                          dense: true,
+                          activeColor: AppColors.purple,
+                          controlAffinity:
+                              ListTileControlAffinity.leading,
+                        );
+                      },
+                    ),
                   );
                 },
               ),
@@ -210,10 +213,13 @@ class _AddToWorkshopDialogState
     if (_selectedSeriesId == null) return;
     setState(() => _saving = true);
     try {
+      final isStaff =
+          ref.read(currentProfileProvider).valueOrNull?.isStaff ?? false;
       await ref
           .read(enrollmentRepositoryProvider)
           .enrollChildInWorkshopSeries(
-              widget.childId, _selectedSeriesId!);
+              widget.childId, _selectedSeriesId!,
+              isStaff: isStaff);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {

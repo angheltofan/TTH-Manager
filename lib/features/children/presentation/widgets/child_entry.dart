@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,7 +10,7 @@ import '../../domain/child_row.dart';
 import '../../domain/child_workshop_summary.dart';
 import '../../providers/children_providers.dart';
 
-// ── Entry (dispatches wide/narrow, owns delete dialog) ────────────────────────
+// ── Entry (dispatches wide/narrow, owns lifecycle dialogs) ────────────────────
 
 class ChildEntry extends ConsumerWidget {
   const ChildEntry({
@@ -25,54 +25,169 @@ class ChildEntry extends ConsumerWidget {
   final bool isAdmin;
   final bool isTrainer;
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+  // ── Action handlers ────────────────────────────────────────────────────────
+
+  Future<void> _confirmDeactivate(BuildContext context, WidgetRef ref) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Șterge copilul'),
+        title: const Text('Inactivează copilul'),
         content: Text(
-            'Ești sigur că vrei să ștergi pe ${child.fullName}?\nAceastă acțiune nu poate fi anulată.'),
+          '${child.fullName} va fi mutat în arhivă. Va fi scos din toate '
+          'atelierele active. Datele istorice (prezență, plăți, demo-uri) '
+          'sunt păstrate. Acțiunea poate fi anulată oricând.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Anulează')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Anulează')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Șterge'),
+            child: const Text('Inactivează'),
           ),
         ],
       ),
     );
     if (ok != true || !context.mounted) return;
     try {
-      await ref.read(childrenRepositoryProvider).delete(child.id);
+      await ref.read(childrenRepositoryProvider).deactivateChild(child.id);
       ref.invalidate(allChildrenProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${child.fullName} a fost șters.')));
+            SnackBar(content: Text('${child.fullName} a fost inactivat.')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Eroare la ștergere: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Eroare la inactivare: $e')));
+      }
+    }
+  }
+
+  Future<void> _confirmReactivate(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reactivează copilul'),
+        content: Text(
+          '${child.fullName} va fi reactivat. Înscrierile la ateliere NU se '
+          'reactivează automat — adăugați copilul manual în atelierele '
+          'dorite.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Anulează')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reactivează'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await ref.read(childrenRepositoryProvider).reactivateChild(child.id);
+      ref.invalidate(allChildrenProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${child.fullName} a fost reactivat.')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Eroare la reactivare: $e')));
+      }
+    }
+  }
+
+  Future<void> _confirmDeletePermanently(
+      BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Șterge definitiv',
+            style: TextStyle(color: AppColors.error)),
+        content: Text(
+          'ATENȚIE: Toate datele copilului ${child.fullName} vor fi șterse '
+          'definitiv: înscrieri, prezență, plăți, notificări. Demo-urile '
+          'convertite vor rămâne în istoric dar fără legătura către acest '
+          'copil. Această acțiune NU poate fi anulată.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Anulează')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Șterge definitiv'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await ref.read(childrenRepositoryProvider).deletePermanently(child.id);
+      ref.invalidate(allChildrenProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${child.fullName} a fost șters definitiv.')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Eroare la ștergere: $e')));
       }
     }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    void onDelete() => _confirmDelete(context, ref);
-    if (isWide) return _WideRow(child: child, isAdmin: isAdmin, onDelete: onDelete);
-    return _NarrowCard(child: child, isAdmin: isAdmin, onDelete: onDelete);
+    void onDeactivate() => _confirmDeactivate(context, ref);
+    void onReactivate() => _confirmReactivate(context, ref);
+    void onDeletePermanently() => _confirmDeletePermanently(context, ref);
+    final isActive = child.isActive != false;
+
+    if (isWide) {
+      return _WideRow(
+        child: child,
+        isAdmin: isAdmin,
+        isActive: isActive,
+        onDeactivate: onDeactivate,
+        onReactivate: onReactivate,
+        onDeletePermanently: onDeletePermanently,
+      );
+    }
+    return _NarrowCard(
+      child: child,
+      isAdmin: isAdmin,
+      isActive: isActive,
+      onDeactivate: onDeactivate,
+      onReactivate: onReactivate,
+      onDeletePermanently: onDeletePermanently,
+    );
   }
 }
 
 // ── Wide desktop row ──────────────────────────────────────────────────────────
 
 class _WideRow extends StatelessWidget {
-  const _WideRow({required this.child, required this.isAdmin, required this.onDelete});
+  const _WideRow({
+    required this.child,
+    required this.isAdmin,
+    required this.isActive,
+    required this.onDeactivate,
+    required this.onReactivate,
+    required this.onDeletePermanently,
+  });
   final ChildRow child;
   final bool isAdmin;
-  final VoidCallback onDelete;
+  final bool isActive;
+  final VoidCallback onDeactivate;
+  final VoidCallback onReactivate;
+  final VoidCallback onDeletePermanently;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +222,12 @@ class _WideRow extends StatelessWidget {
                 const SizedBox(width: 4),
                 _ActionBtn(icon: Icons.edit_outlined, color: AppColors.warning, tooltip: 'Editează', onTap: () => context.go('/children/${child.id}/edit')),
                 const SizedBox(width: 4),
-                _ActionBtn(icon: Icons.delete_outline_rounded, color: AppColors.error, tooltip: 'Șterge', onTap: onDelete),
+                _ChildActionsMenu(
+                  isActive: isActive,
+                  onDeactivate: onDeactivate,
+                  onReactivate: onReactivate,
+                  onDeletePermanently: onDeletePermanently,
+                ),
               ],
             ]),
           ),
@@ -120,10 +240,20 @@ class _WideRow extends StatelessWidget {
 // ── Narrow mobile card ────────────────────────────────────────────────────────
 
 class _NarrowCard extends StatelessWidget {
-  const _NarrowCard({required this.child, required this.isAdmin, required this.onDelete});
+  const _NarrowCard({
+    required this.child,
+    required this.isAdmin,
+    required this.isActive,
+    required this.onDeactivate,
+    required this.onReactivate,
+    required this.onDeletePermanently,
+  });
   final ChildRow child;
   final bool isAdmin;
-  final VoidCallback onDelete;
+  final bool isActive;
+  final VoidCallback onDeactivate;
+  final VoidCallback onReactivate;
+  final VoidCallback onDeletePermanently;
 
   @override
   Widget build(BuildContext context) {
@@ -163,10 +293,99 @@ class _NarrowCard extends StatelessWidget {
               const SizedBox(width: 8),
               _ActionBtn(icon: Icons.edit_outlined, color: AppColors.warning, tooltip: 'Editează', onTap: () => context.go('/children/${child.id}/edit')),
               const SizedBox(width: 8),
-              _ActionBtn(icon: Icons.delete_outline_rounded, color: AppColors.error, tooltip: 'Șterge', onTap: onDelete),
+              _ChildActionsMenu(
+                isActive: isActive,
+                onDeactivate: onDeactivate,
+                onReactivate: onReactivate,
+                onDeletePermanently: onDeletePermanently,
+              ),
             ]),
           ],
         ]),
+      ),
+    );
+  }
+}
+
+// ── Lifecycle actions popup (admin) ───────────────────────────────────────────
+
+class _ChildActionsMenu extends StatelessWidget {
+  const _ChildActionsMenu({
+    required this.isActive,
+    required this.onDeactivate,
+    required this.onReactivate,
+    required this.onDeletePermanently,
+  });
+
+  final bool isActive;
+  final VoidCallback onDeactivate;
+  final VoidCallback onReactivate;
+  final VoidCallback onDeletePermanently;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Acțiuni',
+      offset: const Offset(0, 36),
+      onSelected: (value) {
+        switch (value) {
+          case 'deactivate':
+            onDeactivate();
+            break;
+          case 'reactivate':
+            onReactivate();
+            break;
+          case 'delete':
+            onDeletePermanently();
+            break;
+        }
+      },
+      itemBuilder: (ctx) => [
+        if (isActive)
+          const PopupMenuItem<String>(
+            value: 'deactivate',
+            child: ListTile(
+              leading: Icon(Icons.archive_outlined, color: AppColors.warning),
+              title: Text('Inactivează copil'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          )
+        else
+          const PopupMenuItem<String>(
+            value: 'reactivate',
+            child: ListTile(
+              leading:
+                  Icon(Icons.unarchive_outlined, color: AppColors.success),
+              title: Text('Reactivează copil'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        const PopupMenuItem<String>(
+          value: 'delete',
+          child: ListTile(
+            leading:
+                Icon(Icons.delete_forever_rounded, color: AppColors.error),
+            title: Text('Șterge definitiv',
+                style: TextStyle(color: AppColors.error)),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ),
+      ],
+      child: Tooltip(
+        message: 'Acțiuni',
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: AppColors.muted.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.more_horiz_rounded,
+              size: 18, color: AppColors.muted),
+        ),
       ),
     );
   }

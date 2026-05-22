@@ -54,7 +54,7 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
             compact: isMobile,
           ),
           loading: () => const SizedBox.shrink(),
-          error: (_, __) => const SizedBox.shrink(),
+          error: (_, _) => const SizedBox.shrink(),
         ),
         const SizedBox(width: 4),
       ],

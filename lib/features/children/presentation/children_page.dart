@@ -32,7 +32,7 @@ class _ChildrenPageState extends ConsumerState<ChildrenPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(childrenSearchProvider.notifier).state = '';
-      ref.read(childrenActiveFilterProvider.notifier).state = null;
+      ref.read(childrenActiveFilterProvider.notifier).state = 'active';
       ref.read(childrenWorkshopFilterProvider.notifier).state = null;
       ref.read(childrenTrainerFilterProvider.notifier).state = null;
       ref.read(childrenPageProvider.notifier).state = 0;

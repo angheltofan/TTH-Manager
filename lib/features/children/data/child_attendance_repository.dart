@@ -142,37 +142,6 @@ class ChildAttendanceRepository {
     return data.cast<Map<String, dynamic>>();
   }
 
-  // ── Payment cycles via child_payment_cycles view ─────────────────────────
-
-  Future<List<Map<String, dynamic>>> getPaymentCycles(
-      String childId) async {
-    final data = await _client
-        .from('child_payment_cycles')
-        .select()
-        .eq('child_id', childId)
-        .order('period_start', ascending: false);
-    return (data as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<void> markPaymentCyclePaid(String cycleId) async {
-    await _client.from('payment_cycles').update({
-      'status': 'paid',
-      'paid_at': DateTime.now().toIso8601String(),
-    }).eq('id', cycleId);
-  }
-
-  // ── Payments for a child ─────────────────────────────────────────────────
-
-  Future<List<Map<String, dynamic>>> getPayments(String childId) async {
-    final data = await _client
-        .from('payments')
-        .select(
-            'id, amount, currency, status, sessions_count, due_reason, paid_at, notes, created_at')
-        .eq('child_id', childId)
-        .order('created_at', ascending: false);
-    return (data as List).cast<Map<String, dynamic>>();
-  }
-
   // ── Private helpers ──────────────────────────────────────────────────────
 
   List<Map<String, dynamic>> _sortByWorkshopDate(

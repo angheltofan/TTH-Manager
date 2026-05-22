@@ -233,7 +233,9 @@ class EnrollmentRepository {
   /// policy plus a separate UPDATE policy — rather than the combined
   /// ON CONFLICT DO UPDATE that [upsert] requires.
   Future<void> enrollChildInWorkshopSeries(
-      String childId, String seriesId) async {
+      String childId, String seriesId,
+      {required bool isStaff}) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     if (kDebugMode) {
       debugPrint('[Enrollment] enroll child=$childId series=$seriesId');
     }
@@ -261,9 +263,12 @@ class EnrollmentRepository {
   /// Bulk-enrolls multiple children by calling [enrollChildInWorkshopSeries]
   /// for each, so the insert-then-update fallback applies to every child.
   Future<void> enrollChildrenInWorkshopSeries(
-      String seriesId, List<String> childIds) async {
+      String seriesId, List<String> childIds,
+      {required bool isStaff}) async {
+    if (!isStaff) throw StateError('Unauthorized role');
     for (final childId in childIds) {
-      await enrollChildInWorkshopSeries(childId, seriesId);
+      await enrollChildInWorkshopSeries(childId, seriesId,
+          isStaff: isStaff);
     }
   }
 

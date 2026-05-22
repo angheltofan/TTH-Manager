@@ -257,7 +257,8 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
                   Text('Eroare la încărcare: $e',
                       style: TextStyle(color: theme.colorScheme.error)),
               data: (seriesList) => DropdownButtonFormField<WorkshopSeries>(
-                value: _selectedSeries,
+                key: ValueKey('demo-series-${_selectedSeries?.id}'),
+                initialValue: _selectedSeries,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Selectează atelierul *',
