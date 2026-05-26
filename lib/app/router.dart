@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/supabase/supabase_client_provider.dart';
 import '../core/widgets/app_shell.dart';
 import '../features/auth/domain/app_profile.dart';
+import '../features/auth/presentation/auth_callback_page.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/providers/auth_providers.dart';
 import '../features/children/presentation/child_details_page.dart';
@@ -82,21 +83,29 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final loggedIn = authNotifier.isLoggedIn;
       final path = state.matchedLocation;
-      final isAuthRoute = path == '/login';
+      final isLoginRoute = path == '/login';
+      // The callback page processes Supabase invite/recovery URLs and
+      // performs its own navigation once a session is established. It
+      // must be reachable without a prior session, and must not be
+      // bounced by the role redirects below either.
+      final isCallbackRoute = path == '/auth/callback';
 
       if (!loggedIn) {
-        return isAuthRoute ? null : '/login';
+        return (isLoginRoute || isCallbackRoute) ? null : '/login';
       }
 
-      // Logged in. Role may still be loading — fall back to staff behavior
-      // (the existing default) until the profile resolves; the listener
-      // above will re-trigger this redirect once the role is known.
+      // Logged in. The callback page handles its own role-based navigation.
+      if (isCallbackRoute) return null;
+
+      // Role may still be loading — fall back to staff behavior (the
+      // existing default) until the profile resolves; the listener above
+      // will re-trigger this redirect once the role is known.
       final profile = ref.read(currentProfileProvider).valueOrNull;
       final isParent = profile?.isParent ?? false;
       final isParentRoute =
           path == '/parent' || path.startsWith('/parent/');
 
-      if (isAuthRoute) {
+      if (isLoginRoute) {
         // Post-login destination depends on role.
         return isParent ? '/parent' : '/dashboard';
       }
@@ -120,6 +129,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginPage(),
+      ),
+      GoRoute(
+        path: '/auth/callback',
+        builder: (context, state) => const AuthCallbackPage(),
       ),
       GoRoute(
         path: '/parent',

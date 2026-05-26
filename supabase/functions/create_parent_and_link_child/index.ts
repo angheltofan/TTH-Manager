@@ -236,7 +236,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       parentId = existing.id;
     } else {
       const { data: invited, error: inviteErr } =
-        await adminClient.auth.admin.inviteUserByEmail(email);
+        await adminClient.auth.admin.inviteUserByEmail(email, {
+          redirectTo: 'https://tth-manager.vercel.app/auth/callback',
+        });
       if (inviteErr || !invited?.user) {
         // Detect Supabase Auth email-rate-limit responses and surface a
         // dedicated 429 with a user-facing Romanian message. Generic
