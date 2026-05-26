@@ -6,6 +6,7 @@ import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../parent/presentation/widgets/linked_parents_card.dart';
 import '../../workshops/providers/enrollment_providers.dart';
 import '../providers/child_details_providers.dart';
 import 'widgets/assigned_workshops_card.dart';
@@ -92,6 +93,13 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
 
                 // 4. Status plată
                 PaymentStatusCard(childId: widget.childId),
+
+                // 5. Părinți asociați — admin-only in P4. Trainer read-only
+                // access pending an RLS extension on child_parents/profiles.
+                if (isAdmin) ...[
+                  SizedBox(height: context.sectionGap),
+                  LinkedParentsCard(childId: widget.childId),
+                ],
               ],
             ),
           );

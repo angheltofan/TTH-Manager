@@ -21,6 +21,12 @@ class AppProfile {
   bool get isAdmin => role == 'admin';
   bool get isTrainer => role == 'trainer';
 
+  /// True for the new (P1) parent role. Mirrors the server-side `is_parent()`
+  /// helper. Parents are *not* staff and must never reach admin/trainer
+  /// screens — gated by the router redirect and the repository `isStaff`
+  /// guards from Phase 7B.
+  bool get isParent => role == 'parent';
+
   /// Combined staff predicate. Mirrors the server-side `is_staff()` SQL
   /// helper and is used by repository guards as defense-in-depth alongside
   /// RLS.

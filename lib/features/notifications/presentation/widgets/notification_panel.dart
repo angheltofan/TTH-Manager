@@ -19,10 +19,15 @@ class NotificationDropdown extends ConsumerWidget {
     super.key,
     required this.onClose,
     this.showHandle = false,
+    this.viewAllRoute = '/notifications',
   });
 
   final VoidCallback onClose;
   final bool showHandle;
+
+  /// Route the "Toate notificările" footer link goes to. Defaults to the
+  /// staff page; parent screens pass '/parent/notifications'.
+  final String viewAllRoute;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -165,7 +170,7 @@ class NotificationDropdown extends ConsumerWidget {
           const Divider(height: 1),
           InkWell(
             onTap: () {
-              context.go('/notifications');
+              context.go(viewAllRoute);
               onClose();
             },
             borderRadius: showHandle

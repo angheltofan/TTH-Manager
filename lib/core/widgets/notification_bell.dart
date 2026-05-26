@@ -14,9 +14,17 @@ import '../theme/app_theme.dart';
 // Supply [iconColor] to override the default colour (e.g. white in sidebars).
 
 class AppNotificationBell extends ConsumerStatefulWidget {
-  const AppNotificationBell({super.key, this.iconColor});
+  const AppNotificationBell({
+    super.key,
+    this.iconColor,
+    this.viewAllRoute = '/notifications',
+  });
 
   final Color? iconColor;
+
+  /// Route the dropdown's "Toate notificările" footer goes to. Defaults
+  /// to the staff page; parent screens pass '/parent/notifications'.
+  final String viewAllRoute;
 
   @override
   ConsumerState<AppNotificationBell> createState() =>
@@ -58,6 +66,7 @@ class _AppNotificationBellState extends ConsumerState<AppNotificationBell> {
       builder: (ctx) => _NotificationDialog(
         top: dropTop,
         right: dropRight,
+        viewAllRoute: widget.viewAllRoute,
         onClose: () => Navigator.of(ctx).pop(),
       ),
     );
@@ -84,6 +93,7 @@ class _AppNotificationBellState extends ConsumerState<AppNotificationBell> {
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: NotificationDropdown(
           showHandle: true,
+          viewAllRoute: widget.viewAllRoute,
           onClose: () => Navigator.of(sheetCtx).pop(),
         ),
       ),
@@ -144,11 +154,13 @@ class _NotificationDialog extends StatelessWidget {
     required this.top,
     required this.right,
     required this.onClose,
+    required this.viewAllRoute,
   });
 
   final double top;
   final double right;
   final VoidCallback onClose;
+  final String viewAllRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +184,10 @@ class _NotificationDialog extends StatelessWidget {
               child: SingleChildScrollView(
                 child: SizedBox(
                   width: 360,
-                  child: NotificationDropdown(onClose: onClose),
+                  child: NotificationDropdown(
+                    onClose: onClose,
+                    viewAllRoute: viewAllRoute,
+                  ),
                 ),
               ),
             ),
