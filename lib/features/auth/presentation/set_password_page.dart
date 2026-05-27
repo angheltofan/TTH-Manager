@@ -50,10 +50,17 @@ class _SetPasswordPageState extends ConsumerState<SetPasswordPage> {
         const SnackBar(content: Text('Parola a fost setată cu succes.')),
       );
 
-      if (profile?.isParent == true) {
+      // Route by role. Unknown / missing role falls back to /login so an
+      // account in an inconsistent state isn't dropped into a staff
+      // surface by default.
+      if (profile == null) {
+        context.go('/login');
+      } else if (profile.isParent) {
         context.go('/parent');
-      } else {
+      } else if (profile.isAdmin || profile.isTrainer) {
         context.go('/dashboard');
+      } else {
+        context.go('/login');
       }
     } on AuthException catch (e) {
       if (!mounted) return;
@@ -83,8 +90,8 @@ class _SetPasswordPageState extends ConsumerState<SetPasswordPage> {
   String? _validatePwd(String? v) {
     final value = v ?? '';
     if (value.isEmpty) return 'Parola este obligatorie.';
-    if (value.length < 8) {
-      return 'Parola trebuie să aibă minimum 8 caractere.';
+    if (value.length < 6) {
+      return 'Parola trebuie să aibă minimum 6 caractere.';
     }
     return null;
   }
