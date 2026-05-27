@@ -49,7 +49,7 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _saving = true);
-    final email = _emailCtrl.text.trim();
+    final email = _emailCtrl.text.trim().toLowerCase();
     final token = _codeCtrl.text.trim();
     final password = _pwdCtrl.text;
 
