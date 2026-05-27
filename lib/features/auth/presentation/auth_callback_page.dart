@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../providers/auth_providers.dart';
 
 /// Landing page for Supabase auth redirects (invite, password recovery,
@@ -30,6 +31,11 @@ class AuthCallbackPage extends ConsumerStatefulWidget {
 class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
   String? _errorMessage;
 
+  // Debug-only diagnostic snapshot. Populated by [_process] and rendered
+  // by [build] only when [kDebugMode] is true; release builds never see
+  // this state.
+  Map<String, String>? _debugInfo;
+
   @override
   void initState() {
     super.initState();
@@ -40,42 +46,143 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
     final client = Supabase.instance.client;
     final uri = Uri.base;
 
-    // Parse fragment params BEFORE calling getSessionFromUrl — that call
-    // strips the fragment from the browser URL on success.
+    // Snapshot the URL state BEFORE any side effect — getSessionFromUrl
+    // strips the fragment via history.replaceState on success.
+    final originalUriStr = uri.toString();
+    final originalFragment = uri.fragment;
+    final originalQuery = uri.query;
+
+    // Parse fragment params BEFORE calling getSessionFromUrl.
     final fragmentParams = uri.fragment.isNotEmpty
         ? Uri.splitQueryString(uri.fragment)
         : const <String, String>{};
-    final authType = fragmentParams['type']; // 'invite' | 'recovery' | 'magiclink' | null
-    final hasFragmentTokens =
-        fragmentParams.containsKey('access_token') ||
-            fragmentParams.containsKey('refresh_token');
-    final hasCode = uri.queryParameters.containsKey('code');
+    final queryParams = uri.queryParameters;
 
-    if (hasFragmentTokens || hasCode) {
+    final authType = fragmentParams['type']; // 'invite' | 'recovery' | 'magiclink' | null
+    final hasFragmentTokens = fragmentParams.containsKey('access_token') ||
+        fragmentParams.containsKey('refresh_token');
+    final hasCode = queryParams.containsKey('code');
+    final urlHadAuthParams = hasFragmentTokens || hasCode;
+
+    // GoTrue redirects expired or already-consumed links to the callback
+    // with the error info attached — sometimes in the fragment, sometimes
+    // in the query string. Capture either form.
+    final goTrueError =
+        fragmentParams['error'] ?? queryParams['error'];
+    final goTrueErrorCode =
+        fragmentParams['error_code'] ?? queryParams['error_code'];
+    final goTrueErrorDescription =
+        fragmentParams['error_description'] ?? queryParams['error_description'];
+
+    final beforeSession = client.auth.currentSession;
+    String? authErrorMsg; // captured for the on-screen debug panel
+
+    if (kDebugMode) {
+      debugPrint('[AuthCallback] uri              = ${uri.toString()}');
+      debugPrint('[AuthCallback] uri.fragment     = "${uri.fragment}"');
+      debugPrint('[AuthCallback] uri.queryParams  = $queryParams');
+      debugPrint('[AuthCallback] authType         = $authType');
+      debugPrint('[AuthCallback] hasFragmentTokens=$hasFragmentTokens hasCode=$hasCode');
+      debugPrint('[AuthCallback] goTrueError      = $goTrueError');
+      debugPrint('[AuthCallback] goTrueErrorCode  = $goTrueErrorCode');
+      debugPrint('[AuthCallback] goTrueErrorDesc  = $goTrueErrorDescription');
+      debugPrint('[AuthCallback] session BEFORE   = ${beforeSession?.user.id ?? 'null'}');
+    }
+
+    // Builds the on-screen debug snapshot from everything we know so
+    // far. Called from every terminal state (error or just-before-nav)
+    // so the panel always reflects the actual processing path.
+    Map<String, String> snapshot(Session? after) => {
+          'Uri.base.toString()': originalUriStr,
+          'Uri.base.fragment':
+              originalFragment.isEmpty ? '<empty>' : originalFragment,
+          'Uri.base.query':
+              originalQuery.isEmpty ? '<empty>' : originalQuery,
+          'hasFragmentTokens': hasFragmentTokens.toString(),
+          'hasCode': hasCode.toString(),
+          'authType': authType ?? '<null>',
+          'goTrueError': goTrueError ?? '<none>',
+          'goTrueErrorCode': goTrueErrorCode ?? '<none>',
+          'goTrueErrorDesc': goTrueErrorDescription ?? '<none>',
+          'session BEFORE': beforeSession == null
+              ? 'null'
+              : 'user=${beforeSession.user.id}',
+          'session AFTER': after == null ? 'null' : 'user=${after.user.id}',
+          'getSessionFromUrl error': authErrorMsg ?? '<none>',
+        };
+
+    // If GoTrue already told us the link is bad, don't even bother
+    // calling getSessionFromUrl — go straight to the error UI.
+    if (goTrueError != null) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage =
+            'Linkul de autentificare a expirat sau a fost deja folosit. '
+            'Cere o invitație nouă.';
+        _debugInfo = snapshot(beforeSession);
+      });
+      return;
+    }
+
+    // Always call getSessionFromUrl with the original URI before any
+    // navigation, so the token in the fragment is consumed exactly once.
+    if (urlHadAuthParams) {
       try {
         await client.auth.getSessionFromUrl(uri);
-      } catch (e) {
+      } on AuthException catch (e) {
+        authErrorMsg =
+            'AuthException statusCode=${e.statusCode} code=${e.code} '
+            'message=${e.message}';
         if (kDebugMode) {
-          debugPrint('[AuthCallback] getSessionFromUrl failed: $e');
+          debugPrint('[AuthCallback] $authErrorMsg');
+        }
+      } catch (e) {
+        authErrorMsg = 'Error: $e';
+        if (kDebugMode) {
+          debugPrint('[AuthCallback] getSessionFromUrl threw: $e');
         }
       }
+    } else if (kDebugMode) {
+      debugPrint(
+        '[AuthCallback] No access_token / refresh_token / code in URL — '
+        'skipping getSessionFromUrl.',
+      );
+    }
+
+    final afterSession = client.auth.currentSession;
+
+    if (kDebugMode) {
+      debugPrint(
+        '[AuthCallback] session AFTER    = ${afterSession?.user.id ?? 'null'}',
+      );
     }
 
     if (!mounted) return;
 
-    final session = client.auth.currentSession;
-    if (session == null) {
-      setState(() => _errorMessage =
-          'Sesiunea nu a putut fi creată. Te rugăm să te autentifici manual.');
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-      context.go('/login');
+    if (afterSession == null) {
+      // Two sub-cases, same user-facing copy: the URL did carry tokens
+      // (so this was a real auth attempt that failed — most likely the
+      // link expired or was used) OR the URL had no auth payload at all
+      // (someone deep-linked to /auth/callback by accident). In neither
+      // case do we want to tell the user to "log in manually" — for a
+      // freshly invited parent there's no password to log in with.
+      setState(() {
+        _errorMessage =
+            'Linkul de autentificare a expirat sau a fost deja folosit. '
+            'Cere o invitație nouă.';
+        _debugInfo = snapshot(afterSession);
+      });
       return;
     }
 
+    // Success path: capture the snapshot too so the panel renders the
+    // good state briefly before we navigate (helps verify production
+    // setup).
+    setState(() => _debugInfo = snapshot(afterSession));
+
     // Invite or password-recovery sessions land on the set-password
-    // flow first. The SetPasswordPage handles the role-based routing
-    // after a successful password update.
+    // flow first. SetPasswordPage handles role-based routing after a
+    // successful password update.
     if (authType == 'invite' || authType == 'recovery') {
       context.go('/set-password');
       return;
@@ -105,42 +212,127 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final main = _errorMessage == null
+        ? <Widget>[
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Se finalizează autentificarea…',
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ]
+        : <Widget>[
+            Icon(
+              Icons.error_outline,
+              size: 40,
+              color: AppColors.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: AppColors.error),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton(
+              onPressed: () => context.go('/login'),
+              child: const Text('Înapoi'),
+            ),
+          ];
+
     return Scaffold(
-      body: Center(
-        child: Padding(
+      body: SafeArea(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: _errorMessage == null
-                ? [
-                    const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(strokeWidth: 3),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Se finalizează autentificarea…',
-                      style: theme.textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ]
-                : [
-                    Icon(
-                      Icons.error_outline,
-                      size: 32,
-                      color: theme.colorScheme.error,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _errorMessage!,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: theme.colorScheme.error),
-                      textAlign: TextAlign.center,
-                    ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ...main,
+                  if (kDebugMode && _debugInfo != null) ...[
+                    const SizedBox(height: 32),
+                    _DebugPanel(info: _debugInfo!),
                   ],
+                ],
+              ),
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// On-screen diagnostic panel rendered only when [kDebugMode] is true.
+/// Provides the same information as the `[AuthCallback]` debug logs in a
+/// form that survives a Vercel deploy (the browser console isn't always
+/// accessible during a remote test).
+class _DebugPanel extends StatelessWidget {
+  const _DebugPanel({required this.info});
+  final Map<String, String> info;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Debug (kDebugMode)',
+            style: theme.textTheme.labelMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in info.entries) ...[
+            _DebugRow(label: entry.key, value: entry.value),
+            const SizedBox(height: 4),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DebugRow extends StatelessWidget {
+  const _DebugRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SelectableText.rich(
+      TextSpan(
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontFamily: 'monospace',
+          fontSize: 11,
+        ),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          TextSpan(text: value),
+        ],
       ),
     );
   }
