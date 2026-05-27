@@ -31,6 +31,12 @@ class AuthCallbackPage extends ConsumerStatefulWidget {
 class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
   String? _errorMessage;
 
+  // True when GoTrue redirected with error_code=otp_expired — the
+  // canonical signal that the invite link's one-time token was already
+  // consumed (typically by an email security scanner before the parent
+  // could click). Surfaces the code-based fallback CTA to /parent-setup.
+  bool _showCodeFallback = false;
+
   // Debug-only diagnostic snapshot. Populated by [_process] and rendered
   // by [build] only when [kDebugMode] is true; release builds never see
   // this state.
@@ -120,6 +126,9 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
             'Linkul de autentificare a expirat sau a fost deja folosit. '
             'Cere o invitație nouă.';
         _debugInfo = snapshot(beforeSession);
+        // otp_expired is the dominant outcome when an email scanner
+        // consumed the link upstream. Offer the OTP-code fallback path.
+        _showCodeFallback = goTrueErrorCode == 'otp_expired';
       });
       return;
     }
@@ -240,6 +249,13 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
+            if (_showCodeFallback) ...[
+              FilledButton(
+                onPressed: () => context.go('/parent-setup'),
+                child: const Text('Folosește codul din email'),
+              ),
+              const SizedBox(height: 12),
+            ],
             OutlinedButton(
               onPressed: () => context.go('/login'),
               child: const Text('Înapoi'),

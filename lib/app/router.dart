@@ -10,6 +10,7 @@ import '../core/widgets/app_shell.dart';
 import '../features/auth/domain/app_profile.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
 import '../features/auth/presentation/login_page.dart';
+import '../features/auth/presentation/parent_setup_page.dart';
 import '../features/auth/presentation/set_password_page.dart';
 import '../features/auth/providers/auth_providers.dart';
 import '../features/children/presentation/child_details_page.dart';
@@ -95,15 +96,24 @@ final routerProvider = Provider<GoRouter>((ref) {
       // It manages its own routing on submit, so the role gates below
       // must leave it alone.
       final isSetPasswordRoute = path == '/set-password';
+      // The parent-setup page is the code-based fallback for the invite
+      // flow (used when an email security scanner consumed the magic
+      // link). It also handles its own post-submit navigation and must
+      // be reachable both before AND after the OTP exchange logs the
+      // user in.
+      final isParentSetupRoute = path == '/parent-setup';
 
       if (!loggedIn) {
-        return (isLoginRoute || isCallbackRoute) ? null : '/login';
+        return (isLoginRoute || isCallbackRoute || isParentSetupRoute)
+            ? null
+            : '/login';
       }
 
-      // Logged in. The callback page and the set-password page handle
-      // their own navigation; the role gates below ignore them.
+      // Logged in. The callback, set-password, and parent-setup pages
+      // handle their own navigation; the role gates below ignore them.
       if (isCallbackRoute) return null;
       if (isSetPasswordRoute) return null;
+      if (isParentSetupRoute) return null;
 
       // Role may still be loading — fall back to staff behavior (the
       // existing default) until the profile resolves; the listener above
@@ -145,6 +155,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/set-password',
         builder: (context, state) => const SetPasswordPage(),
+      ),
+      GoRoute(
+        path: '/parent-setup',
+        builder: (context, state) => const ParentSetupPage(),
       ),
       GoRoute(
         path: '/parent',
