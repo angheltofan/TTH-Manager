@@ -23,6 +23,13 @@ Future<void> main() async {
   await Supabase.initialize(
     url: AppConstants.supabaseUrl,
     anonKey: AppConstants.supabaseAnonKey,
+    // We process invite / password-recovery URLs ourselves inside
+    // /auth/callback so we can read the `type` fragment param BEFORE
+    // the session-from-URL call strips it from the browser address bar.
+    // Email/password login does not depend on this auto-detection.
+    authOptions: const FlutterAuthClientOptions(
+      detectSessionInUri: false,
+    ),
   );
 
   runApp(const ProviderScope(child: App()));

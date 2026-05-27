@@ -10,6 +10,7 @@ import '../core/widgets/app_shell.dart';
 import '../features/auth/domain/app_profile.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
 import '../features/auth/presentation/login_page.dart';
+import '../features/auth/presentation/set_password_page.dart';
 import '../features/auth/providers/auth_providers.dart';
 import '../features/children/presentation/child_details_page.dart';
 import '../features/children/presentation/child_form_page.dart';
@@ -89,13 +90,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       // must be reachable without a prior session, and must not be
       // bounced by the role redirects below either.
       final isCallbackRoute = path == '/auth/callback';
+      // The set-password page is reached by any logged-in user (parent
+      // accepting an invite, anyone after a password-recovery email).
+      // It manages its own routing on submit, so the role gates below
+      // must leave it alone.
+      final isSetPasswordRoute = path == '/set-password';
 
       if (!loggedIn) {
         return (isLoginRoute || isCallbackRoute) ? null : '/login';
       }
 
-      // Logged in. The callback page handles its own role-based navigation.
+      // Logged in. The callback page and the set-password page handle
+      // their own navigation; the role gates below ignore them.
       if (isCallbackRoute) return null;
+      if (isSetPasswordRoute) return null;
 
       // Role may still be loading — fall back to staff behavior (the
       // existing default) until the profile resolves; the listener above
@@ -133,6 +141,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/callback',
         builder: (context, state) => const AuthCallbackPage(),
+      ),
+      GoRoute(
+        path: '/set-password',
+        builder: (context, state) => const SetPasswordPage(),
       ),
       GoRoute(
         path: '/parent',

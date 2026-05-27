@@ -39,9 +39,16 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
   Future<void> _process() async {
     final client = Supabase.instance.client;
     final uri = Uri.base;
+
+    // Parse fragment params BEFORE calling getSessionFromUrl — that call
+    // strips the fragment from the browser URL on success.
+    final fragmentParams = uri.fragment.isNotEmpty
+        ? Uri.splitQueryString(uri.fragment)
+        : const <String, String>{};
+    final authType = fragmentParams['type']; // 'invite' | 'recovery' | 'magiclink' | null
     final hasFragmentTokens =
-        uri.fragment.contains('access_token=') ||
-            uri.fragment.contains('refresh_token=');
+        fragmentParams.containsKey('access_token') ||
+            fragmentParams.containsKey('refresh_token');
     final hasCode = uri.queryParameters.containsKey('code');
 
     if (hasFragmentTokens || hasCode) {
@@ -66,9 +73,16 @@ class _AuthCallbackPageState extends ConsumerState<AuthCallbackPage> {
       return;
     }
 
-    // Session established. Load profile so we can route by role; if it
-    // fails we still navigate — the router redirect will retry on
-    // profile load.
+    // Invite or password-recovery sessions land on the set-password
+    // flow first. The SetPasswordPage handles the role-based routing
+    // after a successful password update.
+    if (authType == 'invite' || authType == 'recovery') {
+      context.go('/set-password');
+      return;
+    }
+
+    // Otherwise (magic link, post-OAuth, direct callback entry with an
+    // existing session) route by role.
     try {
       ref.invalidate(currentProfileProvider);
       final profile = await ref.read(currentProfileProvider.future);
