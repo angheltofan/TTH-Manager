@@ -1,24 +1,31 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../providers/auth_providers.dart';
-
-/// Code-based fallback for the parent invite flow. Mounted at
-/// `/parent-setup`. Used when the email's magic link path is consumed
-/// upstream by an email security scanner (Defender / Mimecast /
-/// Proofpoint / SafeLinks) before the parent can click it. The same
-/// invite email also contains a 6-digit OTP (`{{ .Token }}` in the
-/// template) — this page verifies that code and sets the password.
+/// Custom parent password-setup page. Mounted at `/parent-setup`.
 ///
-/// Flow:
-///   1. Parent enters email + 6-digit code + new password.
-///   2. `verifyOTP(type: invite)` exchanges the code for a session.
-///   3. `updateUser(password)` sets the chosen password.
-///   4. Route by role (parent → /parent, staff → /dashboard).
+/// Replaces the previous Supabase invite-OTP flow, which proved
+/// unreliable in production: corporate email scanners pre-fetch the
+/// `{{ .ConfirmationURL }}` and consume the underlying Supabase
+/// `confirmation_token`, which also invalidates the `{{ .Token }}`
+/// OTP shown in the email body — both forms share one credential.
+///
+/// New flow:
+///   1. Admin creates parent → Edge Function `create_parent_and_link_child`
+///      mints a 256-bit random token, stores `sha256(token||pepper)` in
+///      `parent_setup_tokens`, sends an email through Resend with
+///      `https://…/parent-setup?token=<raw>&email=<encoded>`.
+///   2. Parent clicks link → this page opens with the token + email in
+///      the URL query. Parent enters new password.
+///   3. We POST `{email, token, password}` to Edge Function
+///      `complete_parent_setup`. The function verifies the token hash,
+///      sets the password via `auth.admin.updateUserById`, marks the
+///      token consumed.
+///   4. On success we route the parent to `/login` so they sign in
+///      with the password they just chose (the function does NOT mint
+///      a session — parent logs in normally).
 class ParentSetupPage extends ConsumerStatefulWidget {
   const ParentSetupPage({super.key});
 
@@ -29,17 +36,41 @@ class ParentSetupPage extends ConsumerStatefulWidget {
 class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
-  final _codeCtrl = TextEditingController();
   final _pwdCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _saving = false;
   bool _obscurePwd = true;
   bool _obscureConfirm = true;
 
+  // The raw setup token, read from the URL query at initState. Kept
+  // out of the form on purpose — it's a 256-bit opaque value, no user
+  // would ever type it. If the URL didn't carry one, we surface a
+  // dedicated error UI instead of asking the parent to paste 43 chars.
+  String? _token;
+
+  // True when the URL had neither `?token=` nor any usable state. The
+  // page then renders a short "link invalid" screen with a back CTA.
+  bool _missingToken = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final params = GoRouterState.of(context).uri.queryParameters;
+    final emailParam = (params['email'] ?? '').trim();
+    final tokenParam = (params['token'] ?? '').trim();
+    if (emailParam.isNotEmpty) {
+      _emailCtrl.text = emailParam.toLowerCase();
+    }
+    if (tokenParam.isEmpty) {
+      _missingToken = true;
+    } else {
+      _token = tokenParam;
+    }
+  }
+
   @override
   void dispose() {
     _emailCtrl.dispose();
-    _codeCtrl.dispose();
     _pwdCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -47,60 +78,62 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    final token = _token;
+    if (token == null || token.isEmpty) {
+      setState(() => _missingToken = true);
+      return;
+    }
 
     setState(() => _saving = true);
     final email = _emailCtrl.text.trim().toLowerCase();
-    final token = _codeCtrl.text.trim();
     final password = _pwdCtrl.text;
 
     try {
-      // Step 1 — verify the 6-digit invite code. On success Supabase
-      // mints a session for this email, after which updateUser can run.
-      await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.invite,
-        email: email,
-        token: token,
+      final response = await Supabase.instance.client.functions.invoke(
+        'complete_parent_setup',
+        body: {
+          'email': email,
+          'token': token,
+          'password': password,
+        },
       );
 
-      if (!mounted) return;
-
-      // Step 2 — set the password the parent just chose.
-      await Supabase.instance.client.auth.updateUser(
-        UserAttributes(password: password),
-      );
-
-      if (!mounted) return;
-
-      ref.invalidate(currentProfileProvider);
-      final profile = await ref.read(currentProfileProvider.future);
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Parola a fost setată cu succes.')),
-      );
-
-      // Mirror set_password_page role routing exactly. Unknown role
-      // falls back to /login so an inconsistent account isn't dropped
-      // into a staff surface.
-      if (profile == null) {
-        context.go('/login');
-      } else if (profile.isParent) {
-        context.go('/parent');
-      } else if (profile.isAdmin || profile.isTrainer) {
-        context.go('/dashboard');
-      } else {
-        context.go('/login');
+      final data = response.data;
+      final ok = response.status == 200 &&
+          data is Map &&
+          data['success'] == true;
+      if (!ok) {
+        final msg = _extractErrorMessage(data);
+        if (kDebugMode) {
+          debugPrint(
+            '[ParentSetup] non-OK status=${response.status} data=$data',
+          );
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+        setState(() => _saving = false);
+        return;
       }
-    } on AuthException catch (e) {
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Parola a fost setată. Te poți autentifica acum.'),
+        ),
+      );
+      context.go('/login');
+    } on FunctionException catch (e) {
       if (kDebugMode) {
         debugPrint(
-          '[ParentSetup] AuthException statusCode=${e.statusCode} '
-          'code=${e.code} message=${e.message}',
+          '[ParentSetup] FunctionException status=${e.status} '
+          'details=${e.details}',
         );
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_humanizeAuthError(e))),
+        SnackBar(content: Text(_extractErrorMessage(e.details))),
       );
       setState(() => _saving = false);
     } catch (e) {
@@ -115,27 +148,32 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
     }
   }
 
-  static String _humanizeAuthError(AuthException e) {
-    final code = (e.code ?? '').toLowerCase();
-    final msg = e.message.toLowerCase();
-    if (code == 'otp_expired' || msg.contains('expired')) {
-      return 'Codul a expirat. Cere o invitație nouă.';
+  /// Maps the Edge Function's structured error codes to Romanian
+  /// copy. The function returns `{ error: <text>, code: <enum> }` so
+  /// we prefer mapping by `code` and fall back to `error` text.
+  static String _extractErrorMessage(dynamic body) {
+    if (body is Map) {
+      final code = body['code'];
+      if (code is String) {
+        switch (code) {
+          case 'invalid_body':
+            return 'Date invalide. Verifică emailul și parola.';
+          case 'invalid_token':
+            return 'Link invalid sau folosit deja. Cere o invitație nouă.';
+          case 'token_expired':
+            return 'Linkul a expirat. Cere o invitație nouă.';
+          case 'token_locked':
+            return 'Prea multe încercări pentru acest link. Cere o invitație nouă.';
+          case 'password_update_failed':
+            return 'Nu am putut seta parola. Încearcă din nou.';
+          case 'server_error':
+            return 'Eroare server. Încearcă din nou în câteva minute.';
+        }
+      }
+      final err = body['error'];
+      if (err is String && err.isNotEmpty) return err;
     }
-    if (code == 'otp_invalid' ||
-        code == 'invalid_credentials' ||
-        msg.contains('invalid') ||
-        msg.contains('token')) {
-      return 'Cod incorect. Verifică emailul și codul primit pe email.';
-    }
-    if (msg.contains('weak') || msg.contains('password')) {
-      return 'Parola este prea slabă. Încearcă una mai puternică.';
-    }
-    if (e.statusCode == '429' ||
-        msg.contains('rate') ||
-        msg.contains('too many')) {
-      return 'Prea multe încercări. Așteaptă câteva minute și încearcă din nou.';
-    }
-    return 'Eroare: ${e.message}';
+    return 'A apărut o eroare. Încearcă din nou.';
   }
 
   String? _validateEmail(String? v) {
@@ -143,15 +181,6 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
     if (value.isEmpty) return 'Emailul este obligatoriu.';
     final emailRe = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
     if (!emailRe.hasMatch(value)) return 'Email invalid.';
-    return null;
-  }
-
-  String? _validateCode(String? v) {
-    final value = (v ?? '').trim();
-    if (value.isEmpty) return 'Codul este obligatoriu.';
-    if (value.length != 6 || int.tryParse(value) == null) {
-      return 'Codul trebuie să aibă 6 cifre.';
-    }
     return null;
   }
 
@@ -180,129 +209,152 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
             constraints: const BoxConstraints(maxWidth: 420),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Setează parola cu cod',
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Folosește codul de 6 cifre primit pe email pentru a-ți crea parola.',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline),
-                    ),
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: _emailCtrl,
-                      enabled: !_saving,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const [AutofillHints.email],
-                      textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                      validator: _validateEmail,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _codeCtrl,
-                      enabled: !_saving,
-                      keyboardType: TextInputType.number,
-                      autofillHints: const [AutofillHints.oneTimeCode],
-                      textInputAction: TextInputAction.next,
-                      maxLength: 6,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
-                      decoration: InputDecoration(
-                        labelText: 'Cod din email (6 cifre)',
-                        counterText: '',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                      validator: _validateCode,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _pwdCtrl,
-                      obscureText: _obscurePwd,
-                      enabled: !_saving,
-                      autofillHints: const [AutofillHints.newPassword],
-                      textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
-                        labelText: 'Parolă nouă',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscurePwd
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined),
-                          tooltip: _obscurePwd
-                              ? 'Afișează parola'
-                              : 'Ascunde parola',
-                          onPressed: () =>
-                              setState(() => _obscurePwd = !_obscurePwd),
-                        ),
-                      ),
-                      validator: _validatePwd,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _confirmCtrl,
-                      obscureText: _obscureConfirm,
-                      enabled: !_saving,
-                      autofillHints: const [AutofillHints.newPassword],
-                      decoration: InputDecoration(
-                        labelText: 'Confirmă parola',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscureConfirm
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined),
-                          tooltip: _obscureConfirm
-                              ? 'Afișează parola'
-                              : 'Ascunde parola',
-                          onPressed: () => setState(
-                              () => _obscureConfirm = !_obscureConfirm),
-                        ),
-                      ),
-                      validator: _validateConfirm,
-                      onFieldSubmitted: (_) => _saving ? null : _submit(),
-                    ),
-                    const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed: _saving ? null : _submit,
-                      child: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text('Setează parola'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed:
-                          _saving ? null : () => context.go('/login'),
-                      child: const Text('Înapoi la autentificare'),
-                    ),
-                  ],
-                ),
-              ),
+              child: _missingToken
+                  ? _MissingLinkBody(theme: theme)
+                  : _buildForm(theme),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildForm(ThemeData theme) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Setează-ți parola',
+            style: theme.textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Alege o parolă pentru contul tău. O vei folosi la '
+            'autentificările viitoare.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.outline),
+          ),
+          const SizedBox(height: 20),
+          TextFormField(
+            controller: _emailCtrl,
+            enabled: !_saving,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: 'Email',
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            validator: _validateEmail,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _pwdCtrl,
+            obscureText: _obscurePwd,
+            enabled: !_saving,
+            autofillHints: const [AutofillHints.newPassword],
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: 'Parolă nouă',
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePwd
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                tooltip: _obscurePwd
+                    ? 'Afișează parola'
+                    : 'Ascunde parola',
+                onPressed: () =>
+                    setState(() => _obscurePwd = !_obscurePwd),
+              ),
+            ),
+            validator: _validatePwd,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _confirmCtrl,
+            obscureText: _obscureConfirm,
+            enabled: !_saving,
+            autofillHints: const [AutofillHints.newPassword],
+            decoration: InputDecoration(
+              labelText: 'Confirmă parola',
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              suffixIcon: IconButton(
+                icon: Icon(_obscureConfirm
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                tooltip: _obscureConfirm
+                    ? 'Afișează parola'
+                    : 'Ascunde parola',
+                onPressed: () => setState(
+                    () => _obscureConfirm = !_obscureConfirm),
+              ),
+            ),
+            validator: _validateConfirm,
+            onFieldSubmitted: (_) => _saving ? null : _submit(),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _saving ? null : _submit,
+            child: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Setează parola'),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: _saving ? null : () => context.go('/login'),
+            child: const Text('Înapoi la autentificare'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MissingLinkBody extends StatelessWidget {
+  const _MissingLinkBody({required this.theme});
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.link_off, size: 40, color: theme.colorScheme.error),
+        const SizedBox(height: 16),
+        Text(
+          'Link invalid sau incomplet',
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w700),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Deschide linkul din emailul "Setează-ți parola". '
+          'Dacă nu îl găsești, cere administratorului să trimită '
+          'o invitație nouă.',
+          style: theme.textTheme.bodyMedium
+              ?.copyWith(color: theme.colorScheme.outline),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton(
+          onPressed: () => context.go('/login'),
+          child: const Text('Înapoi la autentificare'),
+        ),
+      ],
     );
   }
 }

@@ -3,326 +3,224 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/responsive.dart';
-import '../../../core/widgets/notification_bell.dart';
+import '../../../core/theme/theme_controller.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../domain/parent_dashboard.dart';
-import '../providers/parent_dashboard_providers.dart';
-import 'widgets/parent_bottom_nav.dart';
-import 'widgets/parent_section_card.dart';
+import '../../settings/presentation/widgets/settings_widgets.dart';
+import 'widgets/parent_responsive_scaffold.dart';
 
-/// Read-only Parent Profile page mounted at `/parent/profile`.
-/// Shows identity, linked children, a notification-preferences
-/// placeholder, and a logout action.
+/// Parent Settings page mounted at `/parent/profile`. Visually identical
+/// to the staff `SettingsPage` — every primitive is imported from the
+/// shared [settings_widgets] module so this file stays a thin
+/// composition.
+///
+/// Sections (in order):
+///   1. Aspect          — theme mode picker (light / system / dark)
+///   2. Cont            — current parent name, email, role label
+///   3. Securitate      — "Schimbare parolă" placeholder (matches staff)
+///   4. Despre aplicație — TTH Manager / Tales & Tech HUB / v0.1.0
+///   5. Deconectare     — sole sign-out surface for the parent role
+///
+/// Hosted inside [ParentResponsiveScaffold] so the desktop sidebar / mobile
+/// bottom-nav shell stays consistent with the rest of the parent portal.
+/// The page itself is titled "Setări"; the navigation entry remains
+/// "Profil" since the parent nav was not asked to be renamed.
 class ParentProfilePage extends ConsumerWidget {
   const ParentProfilePage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final themeMode = ref.watch(themeModeProvider);
+    final profileAsync = ref.watch(currentProfileProvider);
     final user = ref.watch(currentUserProvider);
-    final childrenAsync = ref.watch(parentLinkedChildrenProvider);
+    final theme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text('Profil'),
-        actions: [
-          const AppNotificationBell(
-            viewAllRoute: '/parent/notifications',
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Deconectează-te',
-            onPressed: () => _signOut(context, ref),
-          ),
-        ],
-      ),
-      bottomNavigationBar: const ParentBottomNav(currentIndex: 1),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: SingleChildScrollView(
-            padding: context.mobilePadding,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _IdentityCard(
-                  firstName: profile?.firstName ?? '',
-                  lastName: profile?.lastName ?? '',
-                  email: user?.email,
-                ),
-                SizedBox(height: context.sectionGap),
-                _LinkedChildrenCard(async: childrenAsync),
-                SizedBox(height: context.sectionGap),
-                const _NotificationPreferencesCard(),
-                SizedBox(height: context.sectionGap),
-                _LogoutCard(onSignOut: () => _signOut(context, ref)),
-              ],
+    return ParentResponsiveScaffold(
+      // Bottom-nav order is Dashboard (0) / Informații centru (1) /
+      // Setări (2). Must match `ParentBottomNav._items` and
+      // `ParentSidebar._items`.
+      bottomNavIndex: 2,
+      title: 'Setări',
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          // Page title — same typography/spacing as the staff Settings.
+          Text(
+            'Setări',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
-    await ref.read(authRepositoryProvider).signOut();
-    if (context.mounted) context.go('/login');
-  }
-}
-
-// ── Identity ────────────────────────────────────────────────────────────────
-
-class _IdentityCard extends StatelessWidget {
-  const _IdentityCard({
-    required this.firstName,
-    required this.lastName,
-    required this.email,
-  });
-
-  final String firstName;
-  final String lastName;
-  final String? email;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final fullName = '$firstName $lastName'.trim();
-    return ParentSectionCard(
-      title: 'Date personale',
-      icon: Icons.person_rounded,
-      iconColor: const Color(0xFF8B5CF6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          const SizedBox(height: 6),
           Text(
-            fullName.isEmpty ? '(fără nume)' : fullName,
-            style: theme.textTheme.bodyLarge
-                ?.copyWith(fontWeight: FontWeight.w700),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            'Gestionați preferințele și contul dvs.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
-          const SizedBox(height: 6),
-          _MetaRow(
-            icon: Icons.alternate_email_rounded,
-            label: email == null || email!.isEmpty ? '—' : email!,
-          ),
-          const SizedBox(height: 6),
-          Row(
+          const SizedBox(height: 28),
+
+          // ── Aspect ──
+          SettingsGroup(
+            title: 'Aspect',
+            icon: Icons.palette_outlined,
+            iconColor: AppColors.purple,
             children: [
-              Icon(Icons.badge_outlined,
-                  size: 14, color: theme.colorScheme.outline),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Părinte',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.purple,
-                    fontWeight: FontWeight.w700,
-                  ),
+              SettingsTile(
+                icon: Icons.brightness_6_outlined,
+                title: 'Temă',
+                subtitle: switch (themeMode) {
+                  ThemeMode.light => 'Luminoasă',
+                  ThemeMode.dark => 'Întunecată',
+                  ThemeMode.system => 'Urmează sistemul',
+                },
+                trailing: ThemeSegmentedButton(
+                  themeMode: themeMode,
+                  onChanged: (mode) =>
+                      ref.read(themeModeProvider.notifier).state = mode,
                 ),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
 
-// ── Linked children ─────────────────────────────────────────────────────────
+          const SizedBox(height: 16),
 
-class _LinkedChildrenCard extends StatelessWidget {
-  const _LinkedChildrenCard({required this.async});
-  final AsyncValue<List<ParentDashboardChild>> async;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ParentSectionCard(
-      title: 'Copiii tăi',
-      icon: Icons.child_care_rounded,
-      iconColor: const Color(0xFFEC4899),
-      child: async.when(
-        loading: () => const Padding(
-          padding: EdgeInsets.symmetric(vertical: 4),
-          child: SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2)),
-        ),
-        error: (e, _) => Text(
-          'Eroare la încărcare.',
-          style: theme.textTheme.bodySmall?.copyWith(color: AppColors.error),
-        ),
-        data: (children) {
-          if (children.isEmpty) {
-            return Text(
-              'Nu există încă niciun copil asociat.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          // ── Cont ──
+          //
+          // Subtitle composes "email • Părinte" so the role badge stays
+          // attached to the same single-line subtitle used by the staff
+          // settings tile. When the email is missing (rare — would mean
+          // a Supabase user without auth.email), we fall back to just
+          // "Părinte" rather than rendering a stray separator.
+          SettingsGroup(
+            title: 'Cont',
+            icon: Icons.person_outlined,
+            iconColor: AppColors.info,
             children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const Divider(height: 18),
-                _ChildRow(child: children[i]),
-              ],
+              profileAsync.when(
+                data: (profile) {
+                  final email = user?.email ?? '';
+                  final hasEmail = email.isNotEmpty;
+                  return SettingsTile(
+                    icon: Icons.badge_outlined,
+                    title: (profile?.fullName.trim().isNotEmpty ?? false)
+                        ? profile!.fullName
+                        : 'Utilizator',
+                    subtitle: hasEmail ? '$email • Părinte' : 'Părinte',
+                  );
+                },
+                loading: () => const SettingsTile(
+                  icon: Icons.badge_outlined,
+                  title: '...',
+                  subtitle: '',
+                ),
+                error: (_, _) => const SettingsTile(
+                  icon: Icons.badge_outlined,
+                  title: 'Utilizator',
+                  subtitle: 'Părinte',
+                ),
+              ),
             ],
-          );
-        },
-      ),
-    );
-  }
-}
+          ),
 
-class _ChildRow extends StatelessWidget {
-  const _ChildRow({required this.child});
-  final ParentDashboardChild child;
+          const SizedBox(height: 16),
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: () => context.push('/parent/children/${child.id}'),
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    child.fullName.isEmpty ? '(fără nume)' : child.fullName,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (child.relationship != null &&
-                      child.relationship!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      child.relationship!,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline),
+          // ── Securitate ──
+          //
+          // Mirrors the staff tile exactly — same placeholder snackbar.
+          // The route/action is not yet implemented; this is the same
+          // disabled-feel "Funcție disponibilă în curând." behaviour the
+          // staff page ships.
+          SettingsGroup(
+            title: 'Securitate',
+            icon: Icons.security_outlined,
+            iconColor: AppColors.success,
+            children: [
+              SettingsTile(
+                icon: Icons.lock_outline_rounded,
+                title: 'Schimbare parolă',
+                subtitle: 'Actualizați parola contului',
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Funcție disponibilă în curând.'),
+                    ),
+                  );
+                },
+                showChevron: true,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Despre aplicație ──
+          //
+          // Same content as the staff settings page: logo + title +
+          // subtitle + version string. No extra version info is invented.
+          SettingsGroup(
+            title: 'Despre aplicație',
+            icon: Icons.info_outline_rounded,
+            iconColor: AppColors.warning,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/images/app_logo.png',
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TTH Manager',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Tales & Tech HUB',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'v0.1.0',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ],
-              ),
-            ),
-            if (child.isPrimary) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Primar',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.purple,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                  ),
                 ),
               ),
             ],
-            const SizedBox(width: 6),
-            Icon(Icons.chevron_right_rounded,
-                size: 18, color: theme.colorScheme.outline),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Notification preferences placeholder ───────────────────────────────────
-
-class _NotificationPreferencesCard extends StatelessWidget {
-  const _NotificationPreferencesCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ParentSectionCard(
-      title: 'Notificări',
-      icon: Icons.notifications_outlined,
-      iconColor: const Color(0xFF3B82F6),
-      child: Text(
-        'Preferințele de notificare vor fi disponibile în curând.',
-        style: theme.textTheme.bodySmall
-            ?.copyWith(color: theme.colorScheme.outline),
-      ),
-    );
-  }
-}
-
-// ── Logout card ─────────────────────────────────────────────────────────────
-
-class _LogoutCard extends StatelessWidget {
-  const _LogoutCard({required this.onSignOut});
-  final Future<void> Function() onSignOut;
-
-  @override
-  Widget build(BuildContext context) {
-    return ParentSectionCard(
-      title: 'Sesiune',
-      icon: Icons.logout_rounded,
-      iconColor: AppColors.error,
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          icon: const Icon(Icons.logout),
-          label: const Text('Deconectează-te'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.error,
-            side: BorderSide(
-              color: AppColors.error.withValues(alpha: 0.4),
-            ),
           ),
-          onPressed: () => onSignOut(),
-        ),
+
+          const SizedBox(height: 24),
+
+          // ── Deconectare ──
+          SettingsLogoutTile(
+            onTap: () async {
+              await ref.read(authRepositoryProvider).signOut();
+              if (context.mounted) context.go('/login');
+            },
+          ),
+
+          const SizedBox(height: 16),
+        ],
       ),
-    );
-  }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-class _MetaRow extends StatelessWidget {
-  const _MetaRow({required this.icon, required this.label});
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 14, color: theme.colorScheme.outline),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(label, style: theme.textTheme.bodySmall),
-        ),
-      ],
     );
   }
 }

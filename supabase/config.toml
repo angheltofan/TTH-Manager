@@ -1,0 +1,14 @@
+# Supabase project configuration. Only the per-function settings the
+# Edge Functions actually need are declared here — anything else falls
+# back to the platform defaults / Dashboard.
+
+[functions.create_parent_and_link_child]
+# Admin caller must be authenticated. Function does its own is_admin()
+# check on top of the JWT verification.
+verify_jwt = true
+
+[functions.complete_parent_setup]
+# Public endpoint — the parent is NOT yet logged in when redeeming the
+# setup token. The function's defense in depth is the random 256-bit
+# token + sha256(pepper) + per-token attempt counter + 24h TTL.
+verify_jwt = false

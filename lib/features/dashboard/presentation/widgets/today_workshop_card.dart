@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/dashboard_workshop.dart';
 import 'dashboard_workshop_item.dart';
@@ -20,7 +21,11 @@ class TodayWorkshopCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: DashboardWorkshopItem(workshop: workshop, isOwn: isOwn),
+      child: DashboardWorkshopItem(
+        workshop: workshop,
+        isOwn: isOwn,
+        onTap: () => context.go('/workshops/${workshop.id}'),
+      ),
     );
   }
 }

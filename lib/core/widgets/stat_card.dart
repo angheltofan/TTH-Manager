@@ -12,6 +12,7 @@ class StatCard extends StatelessWidget {
     this.subLabel,
     this.trend,
     this.onTap,
+    this.dense = false,
   });
 
   final String label;
@@ -21,6 +22,13 @@ class StatCard extends StatelessWidget {
   final String? subLabel;
   final String? trend;
   final VoidCallback? onTap;
+
+  /// When true, renders the value with a slightly smaller font so
+  /// longer string values (e.g. "Luni, 2 iun." on the parent dashboard)
+  /// don't truncate. Font weight is unchanged so the visual style
+  /// stays identical to the staff dashboard. Default false — staff
+  /// dashboard behaviour is unchanged.
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -36,10 +44,17 @@ class StatCard extends StatelessWidget {
         final double iconSize = compact ? 40 : 46;
         final double iconInner = compact ? 19 : 22;
         final double gap = compact ? 10 : 14;
-        final double valueFs = compact ? 20 : 24;
+        // `dense` shrinks the value font by ~3 px on wide cells so a
+        // longer-than-numeric headline (parent "Următorul atelier",
+        // "În regulă", etc.) has room to breathe without truncating.
+        // Font weight stays at w700 in both modes so the parent and
+        // staff dashboards share the same visual hierarchy.
+        final double valueFs =
+            compact ? 20 : (dense ? 21 : 24);
         final double labelFs = compact ? 11 : 13;
         final double subFs = compact ? 10 : 11;
         final double cardHeight = compact ? 110 : 96;
+        const FontWeight valueFw = FontWeight.w700;
 
         return SizedBox(
           height: cardHeight,
@@ -82,7 +97,7 @@ class StatCard extends StatelessWidget {
                           style: TextStyle(
                             color: theme.colorScheme.onSurface,
                             fontSize: valueFs,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: valueFw,
                             letterSpacing: -0.5,
                             height: 1.1,
                           ),

@@ -18,7 +18,6 @@ import '../features/children/presentation/child_form_page.dart';
 import '../features/children/presentation/children_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/parent/presentation/parent_about_page.dart';
-import '../features/parent/presentation/parent_child_details_page.dart';
 import '../features/parent/presentation/parent_profile_page.dart';
 import '../features/parent/presentation/parent_shell.dart';
 import '../features/payments_due/presentation/payments_due_page.dart';
@@ -165,10 +164,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ParentShell(),
       ),
       GoRoute(
+        // The parent portal intentionally has no separate child-details
+        // page — the dashboard child cards are the single child surface.
+        // The route is kept registered so deep links and browser-history
+        // entries from older builds resolve to a valid page instead of
+        // 404-ing; everything redirects to `/parent`.
         path: '/parent/children/:id',
-        builder: (context, state) => ParentChildDetailsPage(
-          childId: state.pathParameters['id']!,
-        ),
+        redirect: (context, state) => '/parent',
       ),
       GoRoute(
         path: '/parent/notifications',

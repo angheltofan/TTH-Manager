@@ -1,119 +1,512 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/parent_base.dart';
 import '../domain/parent_dashboard.dart';
 
 /// Read-only data layer for the parent dashboard. All queries are
 /// scoped by the P2 RLS policies — a parent only sees rows for children
 /// linked via `child_parents` to their own `auth.uid()`.
+///
+/// Trainer-name JOINs are best-effort: parent has no SELECT on staff
+/// `profiles` rows, so the embedded object comes back null. Callers
+/// treat that as "trainer hidden" rather than an error.
+///
+/// Phase 1 of the perf refactor split the API into two layers:
+///   • [getLinkedChildrenBase] — one `child_parents + children` query,
+///     consumed by every downstream provider so the lookup never
+///     repeats per first paint.
+///   • [getEnrollmentsForBase] — one `workshop_enrollments` query for
+///     the entire linked-child set.
+///   • Per-section methods (next workshop, attendance rate, recent
+///     activity, weekly schedule, per-child summary) all accept the
+///     pre-loaded base / enrollments object so they only issue the
+///     final query that actually fetches their data.
 class ParentDashboardRepository {
   const ParentDashboardRepository(this._client);
 
   final SupabaseClient _client;
 
-  // ── Linked children with per-child summary ─────────────────────────────────
+  // ── Base (single child_parents + children JOIN) ────────────────────────────
 
-  Future<List<ParentDashboardChild>> getLinkedChildren({
-    required String parentId,
-  }) async {
+  /// ONE query that returns the parent's active linked children plus
+  /// the data needed to render names and ordering. Single source of
+  /// truth — every downstream method takes the result of this call as
+  /// input.
+  ///
+  /// `child_parents.relationship` is intentionally NOT selected
+  /// (product rule — never display or transport on the parent client).
+  Future<ParentBase> getLinkedChildrenBase(String parentId) async {
     final linkRows = await _client
         .from('child_parents')
         .select(
-          'relationship, is_primary, created_at, '
+          'is_primary, created_at, '
           'children!child_id(id, first_name, last_name, is_active)',
         )
         .eq('parent_id', parentId)
         .order('is_primary', ascending: false)
         .order('created_at', ascending: true);
 
-    final basics = <_ChildBasics>[];
+    final basics = <ParentChildBasic>[];
+    final childOrder = <String>[];
+    final childById = <String, ParentChildBasic>{};
+
     for (final row in (linkRows as List).cast<Map<String, dynamic>>()) {
       final child = row['children'] as Map<String, dynamic>?;
       if (child == null) continue;
       if (child['is_active'] == false) continue;
-      basics.add(_ChildBasics(
-        id: child['id'] as String,
+      final id = child['id'] as String?;
+      if (id == null) continue;
+      final basic = ParentChildBasic(
+        id: id,
         firstName: (child['first_name'] as String?) ?? '',
         lastName: (child['last_name'] as String?) ?? '',
-        relationship: row['relationship'] as String?,
+        isActive: true,
         isPrimary: (row['is_primary'] as bool?) ?? false,
-      ));
+      );
+      basics.add(basic);
+      childOrder.add(id);
+      childById[id] = basic;
     }
 
-    // Fetch per-child stats in parallel.
-    final summaries = await Future.wait(basics.map(_buildSummary));
-    return summaries;
-  }
-
-  Future<ParentDashboardChild> _buildSummary(_ChildBasics basics) async {
-    final results = await Future.wait([
-      _client
-          .from('workshop_enrollments')
-          .select('id')
-          .eq('child_id', basics.id)
-          .eq('is_active', true),
-      _client
-          .from('attendance')
-          .select('id')
-          .eq('child_id', basics.id)
-          .eq('status', 'present')
-          .filter('payment_cycle_id', 'is', null)
-          .eq('is_archived', false),
-      _client
-          .from('payment_cycles')
-          .select('status, created_at')
-          .eq('child_id', basics.id)
-          .order('created_at', ascending: false)
-          .limit(1),
-    ]);
-
-    final enrollments = (results[0] as List);
-    final presents = (results[1] as List);
-    final cycles = (results[2] as List).cast<Map<String, dynamic>>();
-    final paymentStatus =
-        cycles.isNotEmpty ? cycles.first['status'] as String? : null;
-
-    return ParentDashboardChild(
-      id: basics.id,
-      firstName: basics.firstName,
-      lastName: basics.lastName,
-      relationship: basics.relationship,
-      isPrimary: basics.isPrimary,
-      activeWorkshopCount: enrollments.length,
-      currentCyclePresent: presents.length,
-      paymentStatus: paymentStatus,
+    return ParentBase(
+      basics: basics,
+      childOrder: childOrder,
+      childById: childById,
     );
   }
 
-  // ── Next scheduled workshop for a child ────────────────────────────────────
+  // ── Enrollments base (single workshop_enrollments query) ───────────────────
 
-  Future<ParentNextWorkshop?> getNextWorkshop(String childId) async {
-    final enrollments = await _client
+  /// ONE query that returns active enrollments for every linked child.
+  /// Drives both per-child series IDs (no per-child enrollment lookup
+  /// in `buildSummaryForChild` anymore) and the series-to-children
+  /// rollup used by the next-workshop summary and weekly schedule.
+  Future<ParentEnrollmentsBase> getEnrollmentsForBase(ParentBase base) async {
+    if (base.isEmpty) return ParentEnrollmentsBase.empty;
+
+    final rows = await _client
         .from('workshop_enrollments')
-        .select('series_id')
-        .eq('child_id', childId)
+        .select('child_id, series_id')
+        .inFilter('child_id', base.childIds)
         .eq('is_active', true);
 
-    final seriesIds = (enrollments as List)
-        .map((r) => (r as Map<String, dynamic>)['series_id'] as String?)
-        .whereType<String>()
-        .toList();
-    if (seriesIds.isEmpty) return null;
+    final childrenBySeries = <String, List<String>>{};
+    final seriesByChild = <String, List<String>>{};
+    for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+      final cid = row['child_id'] as String?;
+      final sid = row['series_id'] as String?;
+      if (cid == null || sid == null) continue;
+      childrenBySeries.putIfAbsent(sid, () => []).add(cid);
+      seriesByChild.putIfAbsent(cid, () => []).add(sid);
+    }
 
+    return ParentEnrollmentsBase(
+      seriesIds: childrenBySeries.keys.toList(),
+      childrenBySeries: childrenBySeries,
+      seriesByChild: seriesByChild,
+    );
+  }
+
+  // ── Per-child summary (4 queries in parallel, no enrollments query) ────────
+
+  /// Builds the dashboard summary for one child given the child's
+  /// active series IDs (already loaded by `getEnrollmentsForBase`).
+  /// Fires four queries in a single `Future.wait` — attendance count,
+  /// latest payment cycle, workshop snapshot, next session. Replaces
+  /// the pre-Phase-1 `_buildSummary` which ran two of those queries
+  /// sequentially.
+  Future<ParentDashboardChild> buildSummaryForChild(
+    ParentChildBasic basic,
+    List<String> seriesIds,
+  ) async {
+    // Track positions so we can read results back by name. All four
+    // queries are independent; running them in a single Future.wait
+    // collapses two earlier sequential awaits into the parallel batch.
+    final results = await Future.wait<dynamic>([
+      // 1. Cycle progress count — attendance rows with no cycle yet.
+      _client
+          .from('attendance')
+          .select('id')
+          .eq('child_id', basic.id)
+          .eq('status', 'present')
+          .filter('payment_cycle_id', 'is', null)
+          .eq('is_archived', false),
+      // 2. Latest payment cycle (status + method + paid_at). `notes`
+      //    intentionally NOT selected (privacy rule, see prior audit).
+      _client
+          .from('payment_cycles')
+          .select('status, payment_method, paid_at, created_at')
+          .eq('child_id', basic.id)
+          .order('created_at', ascending: false)
+          .limit(1),
+      // 3. Workshop snapshot (any row, prefer most-recent regardless of
+      //    date) so the child card shows the active workshop's metadata
+      //    even when the weekly generator hasn't emitted a future row.
+      _fetchAnyRowForSeries(seriesIds),
+      // 4. Next session — the actual next future `scheduled_workshops`
+      //    row for this child's series. Used by the focal-child picker.
+      _fetchNextSessionForSeries(seriesIds),
+    ]);
+
+    final presents = (results[0] as List);
+    final cycles = (results[1] as List).cast<Map<String, dynamic>>();
+    final snapshot = results[2] as ParentNextWorkshop?;
+    final futureRow = results[3] as ParentNextWorkshop?;
+
+    final cycle = cycles.isNotEmpty ? cycles.first : null;
+    final paymentStatus = cycle?['status'] as String?;
+    final paymentMethod = cycle?['payment_method'] as String?;
+    final paymentPaidAt = cycle?['paid_at'] != null
+        ? DateTime.tryParse(cycle!['paid_at'] as String)
+        : null;
+
+    final primaryWorkshop = snapshot == null
+        ? null
+        : ParentChildWorkshopBrief(
+            title: snapshot.title,
+            workshopType: snapshot.workshopType,
+            dayOfWeek: snapshot.dayOfWeek,
+            startTime: snapshot.startTime,
+            endTime: snapshot.endTime,
+            trainerName: snapshot.trainerName,
+          );
+
+    return ParentDashboardChild(
+      id: basic.id,
+      firstName: basic.firstName,
+      lastName: basic.lastName,
+      isPrimary: basic.isPrimary,
+      activeWorkshopCount: seriesIds.length,
+      currentCyclePresent: presents.length,
+      paymentStatus: paymentStatus,
+      paymentMethod: paymentMethod,
+      paymentPaidAt: paymentPaidAt,
+      primaryWorkshop: primaryWorkshop,
+      nextWorkshopDate: futureRow?.workshopDate,
+    );
+  }
+
+  // ── Next scheduled workshop across ALL linked children ─────────────────────
+
+  /// Soonest upcoming `scheduled_workshops` row among the parent's
+  /// linked active children. Consumes the pre-loaded base + enrollments
+  /// so it does not re-query `child_parents` or `workshop_enrollments`.
+  Future<ParentNextWorkshopSummary?> getNextWorkshopSummary(
+    ParentBase base,
+    ParentEnrollmentsBase enrollments,
+  ) async {
+    if (enrollments.isEmpty) return null;
+
+    final seriesIds = enrollments.seriesIds;
     final idList = '(${seriesIds.map((s) => '"$s"').join(',')})';
-    final today = DateTime.now();
-    final todayStr =
-        '${today.year.toString().padLeft(4, '0')}-'
-        '${today.month.toString().padLeft(2, '0')}-'
-        '${today.day.toString().padLeft(2, '0')}';
+    final todayStr = _isoDateOnly(DateTime.now());
 
     final data = await _client
         .from('scheduled_workshops')
         .select(
           'id, title, workshop_type, workshop_date, day_of_week, '
-          'start_time, end_time, is_active',
+          'start_time, end_time, series_id, recurring_series_id',
         )
-        // The P2 RLS already handles series_id ↔ recurring_series_id
-        // fallback; both column lookups are unioned here client-side.
+        .or('series_id.in.$idList,recurring_series_id.in.$idList')
+        .gte('workshop_date', todayStr)
+        .eq('is_active', true)
+        .order('workshop_date', ascending: true)
+        .order('start_time', ascending: true)
+        .limit(5);
+
+    final rows = (data as List).cast<Map<String, dynamic>>();
+
+    // First-name lookup table for the rollup, in primary-first order.
+    final childById = <String, String>{
+      for (final b in base.basics) b.id: b.firstName,
+    };
+
+    if (rows.isEmpty) {
+      final fallback = await _fetchAnyRowForSeries(seriesIds);
+      if (fallback == null) return null;
+      final fbNames = _namesAttendingSeries(
+        scheduledRowSeriesKey: null,
+        childrenBySeries: enrollments.childrenBySeries,
+        childById: childById,
+        childOrder: base.childOrder,
+        fallbackAllChildren: true,
+      );
+      return ParentNextWorkshopSummary(
+        scheduledWorkshopId: fallback.id,
+        title: fallback.title,
+        workshopType: fallback.workshopType,
+        workshopDate: null,
+        dayOfWeek: fallback.dayOfWeek,
+        startTime: fallback.startTime,
+        endTime: fallback.endTime,
+        childNames: fbNames,
+        additionalUpcomingCount: 0,
+      );
+    }
+
+    final head = rows.first;
+    final seriesKey = (head['series_id'] as String?) ??
+        (head['recurring_series_id'] as String?);
+    final names = _namesAttendingSeries(
+      scheduledRowSeriesKey: seriesKey,
+      childrenBySeries: enrollments.childrenBySeries,
+      childById: childById,
+      childOrder: base.childOrder,
+      fallbackAllChildren: false,
+    );
+
+    final additional = rows.length - 1;
+
+    return ParentNextWorkshopSummary(
+      scheduledWorkshopId: head['id'] as String,
+      title: head['title'] as String?,
+      workshopType: head['workshop_type'] as String?,
+      workshopDate: head['workshop_date'] != null
+          ? DateTime.tryParse(head['workshop_date'] as String)
+          : null,
+      dayOfWeek: head['day_of_week'] as String?,
+      startTime: head['start_time'] as String?,
+      endTime: head['end_time'] as String?,
+      childNames: names,
+      additionalUpcomingCount: additional < 0 ? 0 : additional,
+    );
+  }
+
+  /// First names of the parent's children attending the row's series,
+  /// preserving primary-first order. When the row's `series_id` is
+  /// unknown (fallback path), lists all enrolled children so the KPI
+  /// still has a child context.
+  List<String> _namesAttendingSeries({
+    required String? scheduledRowSeriesKey,
+    required Map<String, List<String>> childrenBySeries,
+    required Map<String, String> childById,
+    required List<String> childOrder,
+    required bool fallbackAllChildren,
+  }) {
+    Iterable<String> attendingIds;
+    if (scheduledRowSeriesKey != null) {
+      attendingIds = childrenBySeries[scheduledRowSeriesKey] ??
+          const <String>[];
+    } else if (fallbackAllChildren) {
+      attendingIds = {
+        for (final ids in childrenBySeries.values) ...ids,
+      };
+    } else {
+      attendingIds = const <String>[];
+    }
+    final out = <String>[];
+    for (final cid in childOrder) {
+      if (!attendingIds.contains(cid)) continue;
+      final n = childById[cid];
+      if (n != null && n.isNotEmpty) out.add(n);
+    }
+    return out;
+  }
+
+  // ── Attendance-rate summary (3 parallel per-status queries) ────────────────
+
+  /// Counts of `attendance` rows in the last 30 days across the
+  /// parent's linked active children, broken down by status. Fires
+  /// **three queries in parallel**, one per status, each selecting
+  /// only `id` (no `status` text, no joined columns) so the payload is
+  /// the minimum the PostgREST API supports. Consumes pre-loaded child
+  /// IDs (no `child_parents` lookup).
+  ///
+  /// Implementation note: a true server-side count would be cleaner,
+  /// but the supabase_flutter 2.x `.count(CountOption.exact)` terminal
+  /// returns a `PostgrestResponse` (data + count tuple), not a plain
+  /// integer, and pulling `.count` off the response while still
+  /// transferring rows defeats the purpose. The selected `id`-only
+  /// projection keeps each row to ≈ 36 bytes UUID + JSON overhead,
+  /// which is the safest pattern that compiles cleanly across the
+  /// supabase_flutter versions the project targets.
+  Future<ParentAttendanceRateSummary> getAttendanceRateSummaryForIds(
+    List<String> childIds,
+  ) async {
+    if (childIds.isEmpty) return const ParentAttendanceRateSummary.empty();
+
+    final since = DateTime.now()
+        .subtract(const Duration(days: 30))
+        .toUtc()
+        .toIso8601String();
+
+    Future<int> countByStatus(String status) async {
+      final data = await _client
+          .from('attendance')
+          .select('id')
+          .inFilter('child_id', childIds)
+          .eq('is_archived', false)
+          .gte('marked_at', since)
+          .eq('status', status);
+      return (data as List).length;
+    }
+
+    final results = await Future.wait([
+      countByStatus('present'),
+      countByStatus('absent'),
+      countByStatus('motivated'),
+    ]);
+
+    final p = results[0];
+    final a = results[1];
+    final m = results[2];
+    final total = p + a + m;
+    return ParentAttendanceRateSummary(
+      presentCount: p,
+      absentCount: a,
+      motivatedCount: m,
+      totalCount: total,
+      ratePercent: total == 0 ? null : (p / total) * 100.0,
+    );
+  }
+
+  // ── Recent activity for the parent's children ──────────────────────────────
+
+  /// Last [limit] non-archived attendance rows across the parent's
+  /// linked children. Consumes pre-loaded child IDs (no
+  /// `child_parents` lookup).
+  Future<List<ParentRecentActivityItem>> getRecentActivityForIds(
+    List<String> childIds, {
+    int limit = 3,
+  }) async {
+    if (childIds.isEmpty) return const [];
+
+    final data = await _client
+        .from('attendance')
+        .select(
+          'id, status, marked_at, child_id, observation, '
+          'children!child_id(first_name, last_name), '
+          'scheduled_workshops!scheduled_workshop_id('
+          'title, workshop_type, workshop_date, day_of_week, '
+          'start_time, end_time)',
+        )
+        .inFilter('child_id', childIds)
+        .eq('is_archived', false)
+        .order('marked_at', ascending: false)
+        .limit(limit);
+
+    final out = <ParentRecentActivityItem>[];
+    for (final row in (data as List).cast<Map<String, dynamic>>()) {
+      final c = row['children'] as Map<String, dynamic>?;
+      final sw = row['scheduled_workshops'] as Map<String, dynamic>?;
+      out.add(ParentRecentActivityItem(
+        id: row['id'] as String,
+        childId: (row['child_id'] as String?) ?? '',
+        childFirstName: (c?['first_name'] as String?) ?? '',
+        childLastName: (c?['last_name'] as String?) ?? '',
+        status: row['status'] as String?,
+        workshopTitle: sw?['title'] as String?,
+        workshopType: sw?['workshop_type'] as String?,
+        workshopDate: sw?['workshop_date'] != null
+            ? DateTime.tryParse(sw!['workshop_date'] as String)
+            : null,
+        dayOfWeek: sw?['day_of_week'] as String?,
+        startTime: sw?['start_time'] as String?,
+        endTime: sw?['end_time'] as String?,
+        markedAt: row['marked_at'] != null
+            ? DateTime.tryParse(row['marked_at'] as String)
+            : null,
+        observation: row['observation'] as String?,
+      ));
+    }
+    return out;
+  }
+
+  // ── Weekly schedule (one scheduled_workshops query, base in) ───────────────
+
+  /// Returns one row per `scheduled_workshop_id` for sessions occurring
+  /// in `[weekStart, weekEnd]` (inclusive). When multiple of the
+  /// parent's children attend the same session, their first names are
+  /// rolled up in `childFirstNames`. Consumes pre-loaded base +
+  /// enrollments so no `child_parents` or `workshop_enrollments`
+  /// queries are issued here.
+  Future<List<ParentWeeklySession>> getWeeklyScheduleForBase(
+    ParentBase base,
+    ParentEnrollmentsBase enrollments, {
+    required DateTime weekStart,
+    required DateTime weekEnd,
+  }) async {
+    if (enrollments.isEmpty) return const [];
+
+    final seriesIds = enrollments.seriesIds;
+    final idList = '(${seriesIds.map((s) => '"$s"').join(',')})';
+    final fromStr = _isoDateOnly(weekStart);
+    final toStr = _isoDateOnly(weekEnd);
+
+    final data = await _client
+        .from('scheduled_workshops')
+        .select(
+          'id, title, workshop_type, workshop_date, day_of_week, '
+          'start_time, end_time, series_id, recurring_series_id, '
+          'profiles!trainer_id(first_name, last_name)',
+        )
+        .or('series_id.in.$idList,recurring_series_id.in.$idList')
+        .gte('workshop_date', fromStr)
+        .lte('workshop_date', toStr)
+        .eq('is_active', true)
+        .order('workshop_date', ascending: true)
+        .order('start_time', ascending: true);
+
+    final out = <ParentWeeklySession>[];
+    for (final row in (data as List).cast<Map<String, dynamic>>()) {
+      final sid = (row['series_id'] as String?) ??
+          (row['recurring_series_id'] as String?);
+      if (sid == null) continue;
+
+      // Children attending this session in primary-first order.
+      final attendingIds =
+          enrollments.childrenBySeries[sid] ?? const <String>[];
+      final names = <String>[];
+      for (final cid in base.childOrder) {
+        if (!attendingIds.contains(cid)) continue;
+        final n = base.childById[cid]?.firstName ?? '';
+        if (n.isNotEmpty) names.add(n);
+      }
+
+      final trainer = row['profiles'] as Map<String, dynamic>?;
+      String? trainerName;
+      if (trainer != null) {
+        final f = (trainer['first_name'] as String?)?.trim() ?? '';
+        final l = (trainer['last_name'] as String?)?.trim() ?? '';
+        final composed = ('$f $l').trim();
+        trainerName = composed.isEmpty ? null : composed;
+      }
+
+      out.add(ParentWeeklySession(
+        scheduledWorkshopId: row['id'] as String,
+        title: row['title'] as String?,
+        workshopType: row['workshop_type'] as String?,
+        workshopDate: row['workshop_date'] != null
+            ? DateTime.tryParse(row['workshop_date'] as String)
+            : null,
+        dayOfWeek: row['day_of_week'] as String?,
+        startTime: row['start_time'] as String?,
+        endTime: row['end_time'] as String?,
+        trainerName: trainerName,
+        childFirstNames: names,
+      ));
+    }
+    return out;
+  }
+
+  // ── Internal helpers (workshop_series snapshots) ───────────────────────────
+
+  /// Shared lookup: soonest upcoming `scheduled_workshops` row for the
+  /// given set of series IDs.
+  Future<ParentNextWorkshop?> _fetchNextSessionForSeries(
+    List<String> seriesIds,
+  ) async {
+    if (seriesIds.isEmpty) return null;
+    final idList = '(${seriesIds.map((s) => '"$s"').join(',')})';
+    final todayStr = _isoDateOnly(DateTime.now());
+
+    final data = await _client
+        .from('scheduled_workshops')
+        .select(
+          'id, title, workshop_type, workshop_date, day_of_week, '
+          'start_time, end_time, is_active, '
+          'profiles!trainer_id(first_name, last_name)',
+        )
         .or('series_id.in.$idList,recurring_series_id.in.$idList')
         .gte('workshop_date', todayStr)
         .eq('is_active', true)
@@ -126,184 +519,40 @@ class ParentDashboardRepository {
     return ParentNextWorkshop.fromMap(rows.first);
   }
 
-  // ── Recent activity for a child ────────────────────────────────────────────
-
-  Future<ParentRecentActivity> getRecentActivity({
-    required String childId,
-    required String parentId,
-  }) async {
-    final nowIso = DateTime.now().toUtc().toIso8601String();
-
-    final results = await Future.wait([
-      _client
-          .from('attendance')
-          .select(
-            'id, status, marked_at, '
-            'scheduled_workshops!scheduled_workshop_id('
-            'title, workshop_date)',
-          )
-          .eq('child_id', childId)
-          .eq('is_archived', false)
-          .order('marked_at', ascending: false)
-          .limit(1),
-      _client
-          .from('payment_cycles')
-          .select('id, status, paid_at, period_start, period_end, created_at')
-          .eq('child_id', childId)
-          .order('created_at', ascending: false)
-          .limit(1),
-      _client
-          .from('notifications')
-          .select('id, title, body, is_read, created_at')
-          .eq('recipient_id', parentId)
-          .eq('related_child_id', childId)
-          .or('expires_at.is.null,expires_at.gt.$nowIso')
-          .order('created_at', ascending: false)
-          .limit(1),
-    ]);
-
-    ParentRecentAttendance? attendance;
-    final attRows = (results[0] as List).cast<Map<String, dynamic>>();
-    if (attRows.isNotEmpty) {
-      final r = attRows.first;
-      final sw = r['scheduled_workshops'] as Map<String, dynamic>?;
-      attendance = ParentRecentAttendance(
-        id: r['id'] as String,
-        status: r['status'] as String?,
-        workshopTitle: sw?['title'] as String?,
-        workshopDate: sw?['workshop_date'] != null
-            ? DateTime.tryParse(sw!['workshop_date'] as String)
-            : null,
-      );
-    }
-
-    ParentRecentPayment? payment;
-    final payRows = (results[1] as List).cast<Map<String, dynamic>>();
-    if (payRows.isNotEmpty) {
-      final r = payRows.first;
-      payment = ParentRecentPayment(
-        id: r['id'] as String,
-        status: r['status'] as String?,
-        paidAt: r['paid_at'] != null
-            ? DateTime.tryParse(r['paid_at'] as String)
-            : null,
-        periodStart: r['period_start'] != null
-            ? DateTime.tryParse(r['period_start'] as String)
-            : null,
-        periodEnd: r['period_end'] != null
-            ? DateTime.tryParse(r['period_end'] as String)
-            : null,
-      );
-    }
-
-    ParentRecentNotification? notif;
-    final notifRows = (results[2] as List).cast<Map<String, dynamic>>();
-    if (notifRows.isNotEmpty) {
-      final r = notifRows.first;
-      notif = ParentRecentNotification(
-        id: r['id'] as String,
-        title: (r['title'] as String?) ?? '',
-        body: r['body'] as String?,
-        createdAt: r['created_at'] != null
-            ? DateTime.tryParse(r['created_at'] as String)
-            : null,
-        isRead: (r['is_read'] as bool?) ?? false,
-      );
-    }
-
-    return ParentRecentActivity(
-      lastAttendance: attendance,
-      lastPayment: payment,
-      lastNotification: notif,
-    );
-  }
-
-  // ── Active workshops for a child (for the read-only details page) ──────────
-
-  Future<List<ParentNextWorkshop>> getActiveWorkshops(String childId) async {
-    final enrollments = await _client
-        .from('workshop_enrollments')
-        .select('series_id')
-        .eq('child_id', childId)
-        .eq('is_active', true);
-
-    final seriesIds = (enrollments as List)
-        .map((r) => (r as Map<String, dynamic>)['series_id'] as String?)
-        .whereType<String>()
-        .toList();
-    if (seriesIds.isEmpty) return [];
-
+  /// "Active-workshop snapshot" lookup: returns the most recent
+  /// `scheduled_workshops` row for the given series IDs regardless of
+  /// date. Used by the child-card resolver and the "Următorul atelier"
+  /// KPI's fallback path so the parent always sees the workshop's
+  /// metadata even when the weekly generator hasn't materialised a
+  /// future row yet.
+  Future<ParentNextWorkshop?> _fetchAnyRowForSeries(
+    List<String> seriesIds,
+  ) async {
+    if (seriesIds.isEmpty) return null;
     final idList = '(${seriesIds.map((s) => '"$s"').join(',')})';
-    final today = DateTime.now();
-    final todayStr =
-        '${today.year.toString().padLeft(4, '0')}-'
-        '${today.month.toString().padLeft(2, '0')}-'
-        '${today.day.toString().padLeft(2, '0')}';
 
     final data = await _client
         .from('scheduled_workshops')
         .select(
           'id, title, workshop_type, workshop_date, day_of_week, '
-          'start_time, end_time, is_active, series_id, recurring_series_id',
+          'start_time, end_time, is_active, '
+          'profiles!trainer_id(first_name, last_name)',
         )
         .or('series_id.in.$idList,recurring_series_id.in.$idList')
-        .gte('workshop_date', todayStr)
         .eq('is_active', true)
-        .order('workshop_date', ascending: true)
-        .order('start_time', ascending: true);
+        .order('workshop_date', ascending: false)
+        .order('start_time', ascending: false)
+        .limit(1);
 
-    // De-dupe by series so one row represents each series the child
-    // is enrolled in (using the next upcoming instance for metadata).
-    final seen = <String>{};
-    final out = <ParentNextWorkshop>[];
-    for (final row in (data as List).cast<Map<String, dynamic>>()) {
-      final key =
-          (row['series_id'] as String?) ?? (row['recurring_series_id'] as String?);
-      if (key == null) continue;
-      if (!seen.add(key)) continue;
-      out.add(ParentNextWorkshop.fromMap(row));
-    }
-    return out;
+    final rows = (data as List).cast<Map<String, dynamic>>();
+    if (rows.isEmpty) return null;
+    return ParentNextWorkshop.fromMap(rows.first);
   }
 
-  // ── Child basic info (read-only) ───────────────────────────────────────────
+  // ── ISO date helper ────────────────────────────────────────────────────────
 
-  Future<Map<String, dynamic>?> getChildBasic(String childId) async {
-    final data = await _client
-        .from('children')
-        .select('id, first_name, last_name, birth_date, is_active')
-        .eq('id', childId)
-        .maybeSingle();
-    return data;
-  }
-
-  // ── Payment cycle history (read-only) ──────────────────────────────────────
-
-  Future<List<Map<String, dynamic>>> getPaymentCycles(String childId) async {
-    final data = await _client
-        .from('payment_cycles')
-        .select(
-          'id, status, paid_at, period_start, period_end, '
-          'sessions_count, payment_method, created_at',
-        )
-        .eq('child_id', childId)
-        .order('created_at', ascending: false);
-    return (data as List).cast<Map<String, dynamic>>();
-  }
-}
-
-class _ChildBasics {
-  const _ChildBasics({
-    required this.id,
-    required this.firstName,
-    required this.lastName,
-    this.relationship,
-    this.isPrimary = false,
-  });
-
-  final String id;
-  final String firstName;
-  final String lastName;
-  final String? relationship;
-  final bool isPrimary;
+  static String _isoDateOnly(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 }

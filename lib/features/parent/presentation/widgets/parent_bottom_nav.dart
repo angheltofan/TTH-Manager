@@ -1,69 +1,76 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../providers/parent_realtime_provider.dart';
-
 /// Shared bottom navigation for the three top-level parent pages.
-/// Sub-pages (child details, notifications) deliberately omit it and
-/// use the AppBar back arrow instead.
+/// Order, labels and icons mirror [ParentSidebar] so both shells share
+/// one visual language.
 ///
-/// Also acts as the lifecycle anchor for [parentNotificationsRealtimeProvider]:
-/// the realtime channel stays subscribed for as long as any top-level
-/// parent page is mounted (the bottom nav exists on all of them).
-class ParentBottomNav extends ConsumerWidget {
+/// `currentIndex` mapping (must match the constants below and every
+/// `ParentResponsiveScaffold.bottomNavIndex` call site):
+///   0 = Dashboard          → /parent
+///   1 = Informații centru  → /parent/about
+///   2 = Setări             → /parent/profile
+///
+/// The parent-side realtime channel is owned by [ParentResponsiveScaffold]
+/// so it stays alive on desktop too.
+class ParentBottomNav extends StatelessWidget {
   const ParentBottomNav({super.key, required this.currentIndex});
 
-  /// 0 = Acasă (/parent), 1 = Profil (/parent/profile), 2 = Despre (/parent/about).
   final int currentIndex;
 
   static const _items = <_NavItem>[
     _NavItem(
-      icon: Icons.home_outlined,
-      activeIcon: Icons.home_rounded,
-      label: 'Acasă',
+      icon: Icons.space_dashboard_outlined,
+      label: 'Dashboard',
       path: '/parent',
     ),
     _NavItem(
-      icon: Icons.person_outline_rounded,
-      activeIcon: Icons.person_rounded,
-      label: 'Profil',
-      path: '/parent/profile',
+      icon: Icons.info_outlined,
+      label: 'Informații centru',
+      path: '/parent/about',
     ),
     _NavItem(
-      icon: Icons.info_outline_rounded,
-      activeIcon: Icons.info_rounded,
-      label: 'Despre',
-      path: '/parent/about',
+      icon: Icons.tune_outlined,
+      label: 'Setări',
+      path: '/parent/profile',
     ),
   ];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Keep the parent-side realtime subscription alive while any
-    // top-level parent page is mounted. AutoDispose tears the channel
-    // down when the parent navigates to a sub-page or signs out.
-    ref.watch(parentNotificationsRealtimeProvider);
-
+  Widget build(BuildContext context) {
+    // Match the staff `AppShell` mobile NavigationBar metrics exactly
+    // ([core/widgets/app_shell.dart] – `height: 64` + `fontSize: 12`).
+    // Without this override the parent shell would inherit the Material 3
+    // default 80-px height and labelMedium weight, making it visually
+    // taller and heavier than the staff bottom nav.
     return SafeArea(
       top: false,
-      child: NavigationBar(
-        selectedIndex: currentIndex,
-        labelBehavior:
-            NavigationDestinationLabelBehavior.onlyShowSelected,
-        onDestinationSelected: (i) {
-          if (i == currentIndex) return;
-          context.go(_items[i].path);
-        },
-        destinations: _items
-            .map(
-              (item) => NavigationDestination(
-                icon: Icon(item.icon),
-                selectedIcon: Icon(item.activeIcon),
-                label: item.label,
-              ),
-            )
-            .toList(),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          navigationBarTheme: NavigationBarThemeData(
+            height: 64,
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              return const TextStyle(fontSize: 12);
+            }),
+          ),
+        ),
+        child: NavigationBar(
+          selectedIndex: currentIndex,
+          labelBehavior:
+              NavigationDestinationLabelBehavior.onlyShowSelected,
+          onDestinationSelected: (i) {
+            if (i == currentIndex) return;
+            context.go(_items[i].path);
+          },
+          destinations: _items
+              .map(
+                (item) => NavigationDestination(
+                  icon: Icon(item.icon),
+                  label: item.label,
+                ),
+              )
+              .toList(),
+        ),
       ),
     );
   }
@@ -72,13 +79,11 @@ class ParentBottomNav extends ConsumerWidget {
 class _NavItem {
   const _NavItem({
     required this.icon,
-    required this.activeIcon,
     required this.label,
     required this.path,
   });
 
   final IconData icon;
-  final IconData activeIcon;
   final String label;
   final String path;
 }

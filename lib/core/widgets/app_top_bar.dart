@@ -10,6 +10,13 @@ import 'user_menu.dart';
 // ── Page title helper ─────────────────────────────────────────────────────────
 
 String titleForPath(String path) {
+  // Parent portal routes — checked first so `/parent/notifications`
+  // doesn't get swallowed by the `/notifications` branch below.
+  if (path == '/parent') return 'Dashboard';
+  if (path.startsWith('/parent/notifications')) return 'Notificări';
+  if (path.startsWith('/parent/profile')) return 'Setări';
+  if (path.startsWith('/parent/about')) return 'Informații centru';
+  // Staff routes.
   if (path.startsWith('/workshops')) return 'Ateliere';
   if (path.startsWith('/children')) return 'Copii';
   if (path.startsWith('/trainers')) return 'Traineri';
@@ -24,7 +31,15 @@ const _kMobileBreakpoint = 600.0;
 // ── Mobile / tablet top app bar ───────────────────────────────────────────────
 
 class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
-  const AppTopBar({super.key});
+  const AppTopBar({
+    super.key,
+    this.viewAllNotificationRoute = '/notifications',
+  });
+
+  /// Route the bell dropdown's "Toate notificările" footer links to.
+  /// Defaults to the staff page; parent shells pass
+  /// '/parent/notifications'.
+  final String viewAllNotificationRoute;
 
   /// Toolbar height (56) + bottom divider (1).
   @override
@@ -44,7 +59,7 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
       ),
       elevation: 0,
       actions: [
-        const AppNotificationBell(),
+        AppNotificationBell(viewAllRoute: viewAllNotificationRoute),
         profileAsync.when(
           data: (profile) => AppUserMenu(
             name: profile?.fullName ?? 'Utilizator',

@@ -2,8 +2,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../auth/providers/auth_providers.dart';
 import '../domain/app_notification.dart';
 import '../providers/notifications_providers.dart';
+import 'notification_url_resolver.dart';
 import 'widgets/notifications_empty_state.dart';
 import 'widgets/notifications_list.dart';
 
@@ -62,6 +64,12 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final async = ref.watch(notificationsProvider);
+    // Role-aware fallback for the back-arrow and parent-safe URL
+    // rewriting on row clicks. Parents are bounced from staff routes
+    // by the router; resolving to `/parent` up-front avoids the flash.
+    final isParent =
+        ref.watch(currentProfileProvider).valueOrNull?.isParent ?? false;
+    final homeRoute = isParent ? '/parent' : '/dashboard';
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -85,7 +93,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                           icon: const Icon(Icons.arrow_back_rounded),
                           onPressed: () => context.canPop()
                               ? context.pop()
-                              : context.go('/dashboard'),
+                              : context.go(homeRoute),
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
                         ),
@@ -164,7 +172,10 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                             if (url != null &&
                                 url.isNotEmpty &&
                                 context.mounted) {
-                              context.go(url);
+                              context.go(resolveNotificationNavUrl(
+                                url,
+                                isParent: isParent,
+                              ));
                             }
                           },
                         );

@@ -11,7 +11,15 @@ import 'user_menu.dart';
 // ── Desktop top bar (placed inside the sidebar + content column) ──────────────
 
 class AppDesktopTopBar extends ConsumerWidget {
-  const AppDesktopTopBar({super.key});
+  const AppDesktopTopBar({
+    super.key,
+    this.viewAllNotificationRoute = '/notifications',
+  });
+
+  /// Route the bell dropdown's "Toate notificările" footer links to.
+  /// Defaults to the staff page; parent shells pass
+  /// '/parent/notifications'.
+  final String viewAllNotificationRoute;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -37,7 +45,7 @@ class AppDesktopTopBar extends ConsumerWidget {
                   ),
                 ),
                 const Spacer(),
-                const AppNotificationBell(),
+                AppNotificationBell(viewAllRoute: viewAllNotificationRoute),
                 const SizedBox(width: 8),
                 profileAsync.when(
                   data: (profile) => AppUserMenu(

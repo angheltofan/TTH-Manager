@@ -360,7 +360,7 @@ class _CreateNewTabState extends ConsumerState<_CreateNewTab> {
               );
       if (!mounted) return;
       final message = result.inviteSent
-          ? 'Invitația a fost trimisă.'
+          ? 'Emailul pentru setarea parolei a fost trimis.'
           : 'Cont existent asociat.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),

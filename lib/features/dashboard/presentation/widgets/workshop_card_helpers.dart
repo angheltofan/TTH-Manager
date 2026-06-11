@@ -2,25 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
-// ── Workshop type style (icon + color) ────────────────────────────────────────
-
-(IconData, Color) workshopTypeStyle(String type) {
-  final t = type.toLowerCase();
-  if (t.contains('robotic')) {
-    return (Icons.precision_manufacturing_outlined, AppColors.info);
-  }
-  if (t.contains('lectur')) return (Icons.menu_book_outlined, AppColors.warning);
-  if (t.contains('modela')) {
-    return (Icons.view_in_ar_outlined, const Color(0xFF14B8A6));
-  }
-  if (t.contains('tales') || t.contains('povestiri')) {
-    return (Icons.auto_stories_outlined, const Color(0xFFF97316));
-  }
-  if (t.contains('desen') || t.contains('pictur') || t.contains('culoare')) {
-    return (Icons.draw_outlined, AppColors.purple);
-  }
-  return (Icons.event_outlined, AppColors.purple);
-}
+// Re-export the canonical workshop-type → (icon, color) mapping so
+// every existing call site that does
+//   `import '.../workshop_card_helpers.dart'`
+// continues to see `workshopTypeStyle` without an import change.
+// The function itself lives in `core/utils/workshop_type_style.dart`
+// so non-dashboard features (e.g. the parent dashboard) can consume it
+// without crossing a feature boundary.
+export '../../../../core/utils/workshop_type_style.dart'
+    show workshopTypeStyle;
 
 // ── Workshop card status ──────────────────────────────────────────────────────
 

@@ -93,6 +93,8 @@ class AllWorkshopsCard extends ConsumerWidget {
                     child: DashboardWorkshopItem(
                       workshop: workshops[i],
                       showDate: true,
+                      onTap: () =>
+                          context.go('/workshops/${workshops[i].id}'),
                     ),
                   ),
                 );

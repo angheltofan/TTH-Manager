@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
+import '../../../auth/providers/auth_providers.dart';
 import '../../domain/app_notification.dart';
 import '../../providers/notifications_providers.dart';
+import '../notification_url_resolver.dart';
 import 'notification_tile.dart';
 
 // ── Compact notification dropdown ─────────────────────────────────────────────
@@ -34,6 +36,11 @@ class NotificationDropdown extends ConsumerWidget {
     final theme = Theme.of(context);
     final recentAsync = ref.watch(recentNotificationsProvider);
     final unread = ref.watch(unreadNotificationsCountProvider);
+    // Parent role detection is read here once per build and threaded
+    // into the row click handler so any staff-flavoured `actionUrl`
+    // resolves to `/parent` instead of triggering a router redirect.
+    final isParent =
+        ref.watch(currentProfileProvider).valueOrNull?.isParent ?? false;
 
     return Material(
       type: MaterialType.transparency,
@@ -155,7 +162,10 @@ class NotificationDropdown extends ConsumerWidget {
                         if (url != null &&
                             url.isNotEmpty &&
                             context.mounted) {
-                          context.go(url);
+                          context.go(resolveNotificationNavUrl(
+                            url,
+                            isParent: isParent,
+                          ));
                         }
                         onClose();
                       },

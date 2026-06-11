@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
@@ -8,20 +7,32 @@ import 'workshop_card_helpers.dart';
 
 /// A unified workshop card used in both "Ateliere azi" and "Toate atelierele".
 /// Identical typography, badges, spacing, and status display in both sections.
+/// Also reused on the parent dashboard's "Program săptămâna aceasta".
 ///
 /// - Set [showDate] = true in the "all workshops" list to include the date.
 /// - Set [isOwn] = true when the workshop belongs to the logged-in trainer.
+/// - Pass [onTap] to make the card clickable (staff: navigate to the
+///   workshop detail page; parent: leave null — parent has no RLS
+///   access to the staff workshop pages, so the row stays read-only).
+/// - Pass [customChildrenLabel] to override the default
+///   "`{childrenCount} copii`" meta entry. The parent dashboard uses
+///   this to list its own children attending the session, e.g.
+///   "Sofia, Matei".
 class DashboardWorkshopItem extends StatelessWidget {
   const DashboardWorkshopItem({
     super.key,
     required this.workshop,
     this.isOwn = false,
     this.showDate = false,
+    this.onTap,
+    this.customChildrenLabel,
   });
 
   final DashboardWorkshop workshop;
   final bool isOwn;
   final bool showDate;
+  final VoidCallback? onTap;
+  final String? customChildrenLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -38,12 +49,16 @@ class DashboardWorkshopItem extends StatelessWidget {
     };
     final (typeIcon, typeColor) = workshopTypeStyle(workshop.workshopType);
 
+    final childrenLabel = customChildrenLabel ??
+        ((workshop.childrenCount != null && workshop.childrenCount! > 0)
+            ? '${workshop.childrenCount} copii'
+            : null);
+
     final metaParts = [
       if (showDate) formatDate(workshop.workshopDate),
       '${formatTimeString(workshop.startTime)}–${formatTimeString(workshop.endTime)}',
       if (workshop.trainerName != null) workshop.trainerName!,
-      if (workshop.childrenCount != null && workshop.childrenCount! > 0)
-        '${workshop.childrenCount} copii',
+      if (childrenLabel != null && childrenLabel.isNotEmpty) childrenLabel,
     ];
 
     return Material(
@@ -53,7 +68,12 @@ class DashboardWorkshopItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => context.go('/workshops/${workshop.id}'),
+        // Falls back to navigating to the staff workshop detail page so
+        // the existing staff callsites stay tap-through without an
+        // explicit handler. Parent callsites pass `onTap: () {}` (or
+        // omit and the tap goes nowhere — guarded by GoRouter's
+        // role-redirect for the staff route anyway).
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
