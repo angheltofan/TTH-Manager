@@ -54,16 +54,20 @@ class PaymentsDueRepository {
           needsCheck.map((e) => e['id'] as String).toList();
 
       // child_payment_status_rows view joins attendance to payment cycles.
-      // We only need to know which cycle_ids have at least one row.
+      // We only need to know which cycle ids have at least one row.
+      // View column is `payment_cycle_id`; older deployments expose
+      // `cycle_id` instead, so read both for safety.
       final rows = await _client
           .from('child_payment_status_rows')
-          .select('cycle_id')
-          .inFilter('cycle_id', checkIds)
-          .not('cycle_id', 'is', null);
+          .select('payment_cycle_id')
+          .inFilter('payment_cycle_id', checkIds)
+          .not('payment_cycle_id', 'is', null);
 
       final cyclesWithRows = (rows as List)
           .cast<Map<String, dynamic>>()
-          .map((e) => e['cycle_id'] as String?)
+          .map((e) =>
+              (e['payment_cycle_id'] as String?) ??
+              (e['cycle_id'] as String?))
           .whereType<String>()
           .toSet();
 

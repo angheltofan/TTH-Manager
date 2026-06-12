@@ -14,6 +14,7 @@ class CycleGroup {
     this.paidAt,
     this.confirmedByName,
     this.paymentMethod,
+    this.sessionsCount,
     required this.rows,
   });
 
@@ -27,6 +28,12 @@ class CycleGroup {
   /// Resolved display method: 'POS', 'OP', or null.
   /// Derived from payment_cycles.payment_method or fallback from notes.
   final String? paymentMethod;
+
+  /// `payment_cycles.sessions_count` — declared session count on the
+  /// cycle row itself. Lets the empty-state copy distinguish between
+  /// "no sessions on this cycle" and "sessions exist but aren't linked
+  /// to the cycle in the database".
+  final int? sessionsCount;
   final List<ChildPaymentStatusRow> rows;
 }
 

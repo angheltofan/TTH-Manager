@@ -110,7 +110,9 @@ class PaymentStatusCard extends ConsumerWidget {
           // ── Past / due cycles ────────────────────────────────────────────
           if (!showActiveCycle && groups.isEmpty)
             Text(
-              'Nu există încă un status de plată.',
+              paymentCycles.isEmpty
+                  ? 'Nu există cicluri de plată înregistrate.'
+                  : 'Nu există încă un status de plată.',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             )
@@ -130,6 +132,7 @@ class PaymentStatusCard extends ConsumerWidget {
                 paidAt: g.paidAt,
                 confirmedByName: g.confirmedByName,
                 paymentMethod: g.paymentMethod,
+                sessionsCount: g.sessionsCount,
                 rows: g.rows,
                 onConfirmPayment:
                     (g.cycleStatus == 'due' || g.cycleStatus == 'overdue')
@@ -196,15 +199,25 @@ class PaymentStatusCard extends ConsumerWidget {
           .where((r) => r.workshopDate != null)
           .toList();
       final cycle = cycleData[e.key];
+      // Source of truth for cycle metadata is the `payment_cycles` table
+      // (fetched separately and joined here via cycleData). The view's
+      // joined columns are only used as a fallback for cycles missing
+      // from the table read. This keeps the group correctly populated
+      // even when view column aliases (cycle_status / period_start /
+      // paid_at) drift relative to the client's expectations — the bug
+      // that previously hid `due` cycles after the payment_cycle_id
+      // rename. `confirmedByName` stays from the view because the
+      // `payment_cycles` row only carries the confirmer UUID.
       return CycleGroup(
         cycleId: e.key,
-        cycleStatus: m.cycleStatus,
-        periodStart: m.periodStart,
-        periodEnd: m.periodEnd,
-        paidAt: m.paidAt,
+        cycleStatus: cycle?.status ?? m.cycleStatus,
+        periodStart: cycle?.periodStart ?? m.periodStart,
+        periodEnd: cycle?.periodEnd ?? m.periodEnd,
+        paidAt: cycle?.paidAt ?? m.paidAt,
         confirmedByName: m.confirmedByName,
         paymentMethod:
             _resolveMethod(cycle?.paymentMethod, cycle?.notes),
+        sessionsCount: cycle?.sessionsCount,
         rows: sorted,
       );
     }).toList();
@@ -226,6 +239,7 @@ class PaymentStatusCard extends ConsumerWidget {
         paidAt: cycle.paidAt,
         confirmedByName: null,
         paymentMethod: _resolveMethod(cycle.paymentMethod, cycle.notes),
+        sessionsCount: cycle.sessionsCount,
         rows: const [],
       ));
     }

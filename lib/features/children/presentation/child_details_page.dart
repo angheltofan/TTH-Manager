@@ -12,6 +12,7 @@ import '../providers/child_details_providers.dart';
 import 'widgets/assigned_workshops_card.dart';
 import 'widgets/child_info_card.dart';
 import 'widgets/current_status_card.dart';
+import 'widgets/generate_child_report_button.dart';
 import 'widgets/payment_status_card.dart';
 
 class ChildDetailsPage extends ConsumerStatefulWidget {
@@ -60,6 +61,10 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
               context.canPop() ? context.pop() : context.go('/children'),
         ),
         title: const Text('Detalii copil'),
+        actions: [
+          GenerateChildReportButton(childId: widget.childId),
+          const SizedBox(width: 4),
+        ],
       ),
       body: childAsync.when(
         loading: () => const AppLoading(),

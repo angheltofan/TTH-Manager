@@ -18,6 +18,7 @@ class PaymentCycleCard extends StatelessWidget {
     this.paidAt,
     this.confirmedByName,
     this.paymentMethod,
+    this.sessionsCount,
     required this.rows,
     this.onConfirmPayment,
   });
@@ -32,8 +33,23 @@ class PaymentCycleCard extends StatelessWidget {
 
   /// Display label — 'POS', 'OP', or null. Shown when cycle is paid.
   final String? paymentMethod;
+
+  /// `payment_cycles.sessions_count` for this cycle. Used to pick the
+  /// right empty-state copy when [rows] is empty.
+  final int? sessionsCount;
   final List<ChildPaymentStatusRow> rows;
   final Future<void> Function()? onConfirmPayment;
+
+  /// Empty-state copy for the attendance block. Distinguishes between a
+  /// freshly created cycle (no sessions declared) and a cycle that
+  /// declares sessions but whose attendance rows aren't linked back via
+  /// `attendance.payment_cycle_id`.
+  static String _emptyRowsMessage(int? sessionsCount) {
+    if (sessionsCount == null || sessionsCount == 0) {
+      return 'Acest ciclu de plată nu are încă ședințe asociate.';
+    }
+    return 'Ședințele acestui ciclu nu sunt legate corect în baza de date.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +201,7 @@ class PaymentCycleCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Text(
-                'Nu există prezențe înregistrate pentru acest ciclu.',
+                _emptyRowsMessage(sessionsCount),
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),

@@ -40,7 +40,10 @@ class ChildPaymentStatusRow {
   factory ChildPaymentStatusRow.fromMap(Map<String, dynamic> map) =>
       ChildPaymentStatusRow(
         childId: (map['child_id'] as String?) ?? '',
-        cycleId: map['cycle_id'] as String?,
+        // The view exposes the FK as `payment_cycle_id`; older builds /
+        // alternative views may use `cycle_id`. Read both for safety.
+        cycleId: (map['payment_cycle_id'] as String?) ??
+            (map['cycle_id'] as String?),
         workshopTitle: map['workshop_title'] as String?,
         workshopDate: map['workshop_date'] != null
             ? DateTime.tryParse(map['workshop_date'] as String)
