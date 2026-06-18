@@ -8,24 +8,24 @@ import '../theme/app_theme.dart';
 /// widget so width, padding, logo treatment, divider, item style, and
 /// adaptive light/dark colours stay identical across roles.
 ///
-/// The caller supplies the brand block (`logoTitle` / `logoSubtitle`)
-/// and the navigation items. An optional [sectionLabel] + [trailingItems]
-/// list lets a sidebar add a "CONT" group after the primary items
-/// (e.g. Setări for staff). No business logic lives here.
+/// Brand block (top of the sidebar): the app logo is centered, with
+/// the [logoSubtitle] (e.g. "Tales & Tech HUB") centered below it.
+/// The product name "TTH Manager" lives in the top bar instead of
+/// being repeated here.
+///
+/// An optional [sectionLabel] + [trailingItems] list lets a sidebar
+/// add a "CONT" group after the primary items (e.g. Setări for staff).
+/// No business logic lives here.
 class AppSidebarBase extends StatelessWidget {
   const AppSidebarBase({
     super.key,
-    required this.logoTitle,
     required this.logoSubtitle,
     required this.items,
     this.sectionLabel,
     this.trailingItems = const [],
   });
 
-  /// Primary brand line, e.g. "TTH Manager".
-  final String logoTitle;
-
-  /// Secondary brand line, e.g. "Tales & Tech HUB".
+  /// Brand line under the logo, e.g. "Tales & Tech HUB".
   final String logoSubtitle;
 
   /// Navigation rows rendered in the order supplied.
@@ -64,47 +64,33 @@ class AppSidebarBase extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-              child: Row(
+              child: Column(
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 56,
+                    height: 56,
                     clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(11),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Image.asset(
                       'assets/images/app_logo.png',
-                      width: 40,
-                      height: 40,
+                      width: 56,
+                      height: 56,
                       fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          logoTitle,
-                          style: TextStyle(
-                            color: titleColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                            letterSpacing: 0.1,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          logoSubtitle,
-                          style: TextStyle(
-                            color: subtitleColor,
-                            fontSize: 11,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                  const SizedBox(height: 10),
+                  Text(
+                    logoSubtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      letterSpacing: 0.1,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),

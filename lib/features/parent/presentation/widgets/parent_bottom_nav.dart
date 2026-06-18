@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 /// Order, labels and icons mirror [ParentSidebar] so both shells share
 /// one visual language.
 ///
-/// `currentIndex` mapping (must match the constants below and every
-/// `ParentResponsiveScaffold.bottomNavIndex` call site):
-///   0 = Dashboard          → /parent
-///   1 = Informații centru  → /parent/about
-///   2 = Setări             → /parent/profile
+/// `currentIndex` mapping (must match the constants below and the
+/// `_indexForPath` helper in [ParentResponsiveScaffold]):
+///   0  = Dashboard          → /parent
+///   1  = Informații centru  → /parent/info
+///   2  = Setări             → /parent/settings
+///   -1 = no top-level match (e.g. /parent/notifications) — bottom nav
+///        renders with nothing selected
 ///
 /// The parent-side realtime channel is owned by [ParentResponsiveScaffold]
 /// so it stays alive on desktop too.
@@ -27,12 +29,12 @@ class ParentBottomNav extends StatelessWidget {
     _NavItem(
       icon: Icons.info_outlined,
       label: 'Informații centru',
-      path: '/parent/about',
+      path: '/parent/info',
     ),
     _NavItem(
       icon: Icons.tune_outlined,
       label: 'Setări',
-      path: '/parent/profile',
+      path: '/parent/settings',
     ),
   ];
 
@@ -55,7 +57,10 @@ class ParentBottomNav extends StatelessWidget {
           ),
         ),
         child: NavigationBar(
-          selectedIndex: currentIndex,
+          // NavigationBar asserts the index is in range, so clamp
+          // unselected (-1) back to 0. Matches the staff `AppShell`
+          // behaviour for the same edge case.
+          selectedIndex: currentIndex < 0 ? 0 : currentIndex,
           labelBehavior:
               NavigationDestinationLabelBehavior.onlyShowSelected,
           onDestinationSelected: (i) {

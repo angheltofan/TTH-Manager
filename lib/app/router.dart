@@ -8,17 +8,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/supabase/supabase_client_provider.dart';
 import '../core/widgets/app_shell.dart';
 import '../features/auth/domain/app_profile.dart';
+import '../features/assistant/presentation/assistant_page.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/parent_setup_page.dart';
 import '../features/auth/presentation/set_password_page.dart';
 import '../features/auth/providers/auth_providers.dart';
-import '../features/assistant/presentation/assistant_page.dart';
 import '../features/children/presentation/child_details_page.dart';
 import '../features/children/presentation/child_form_page.dart';
 import '../features/children/presentation/children_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/parent/presentation/parent_about_page.dart';
+import '../features/parent/presentation/parent_dashboard_page.dart';
 import '../features/parent/presentation/parent_profile_page.dart';
 import '../features/parent/presentation/parent_shell.dart';
 import '../features/payments_due/presentation/payments_due_page.dart';
@@ -160,9 +161,48 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/parent-setup',
         builder: (context, state) => const ParentSetupPage(),
       ),
+      // ── Parent portal ────────────────────────────────────────────────
+      //
+      // One persistent `ShellRoute` wraps every `/parent/*` page in
+      // [ParentShell] → [ParentResponsiveScaffold]. Navigating between
+      // Dashboard / Informații centru / Setări swaps only the `child`
+      // slot — sidebar, top bar, bottom nav and the
+      // `parentNotificationsRealtimeProvider` channel stay mounted, and
+      // the long-lived `parentLinkedChildrenBaseProvider` /
+      // `parentEnrollmentsProvider` cache survives navigation untouched.
+      ShellRoute(
+        builder: (context, state, child) => ParentShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/parent',
+            builder: (context, state) => const ParentDashboardPage(),
+          ),
+          GoRoute(
+            path: '/parent/info',
+            builder: (context, state) => const ParentAboutPage(),
+          ),
+          GoRoute(
+            path: '/parent/settings',
+            builder: (context, state) => const ParentProfilePage(),
+          ),
+          GoRoute(
+            path: '/parent/notifications',
+            // Reuses the same NotificationsPage as the staff route — its
+            // queries are already scoped to the current `recipient_id`
+            // and contain no admin-only mutations.
+            builder: (context, state) => const NotificationsPage(),
+          ),
+        ],
+      ),
+      // Aliases for the prior path names so existing browser bookmarks /
+      // deep links still resolve.
       GoRoute(
-        path: '/parent',
-        builder: (context, state) => const ParentShell(),
+        path: '/parent/about',
+        redirect: (context, state) => '/parent/info',
+      ),
+      GoRoute(
+        path: '/parent/profile',
+        redirect: (context, state) => '/parent/settings',
       ),
       GoRoute(
         // The parent portal intentionally has no separate child-details
@@ -172,21 +212,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         // 404-ing; everything redirects to `/parent`.
         path: '/parent/children/:id',
         redirect: (context, state) => '/parent',
-      ),
-      GoRoute(
-        path: '/parent/notifications',
-        // Reuses the same NotificationsPage as the staff route — its
-        // queries are already scoped to the current `recipient_id` and
-        // contain no admin-only mutations.
-        builder: (context, state) => const NotificationsPage(),
-      ),
-      GoRoute(
-        path: '/parent/profile',
-        builder: (context, state) => const ParentProfilePage(),
-      ),
-      GoRoute(
-        path: '/parent/about',
-        builder: (context, state) => const ParentAboutPage(),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
@@ -247,12 +272,25 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/assistant',
             builder: (context, state) => const AssistantPage(),
           ),
+          // Trainer administration moved out of the sidebar. Now lives
+          // under Setări → Echipa centrului. The flat `/trainers` URL
+          // is kept as a redirect so older bookmarks resolve.
           GoRoute(
             path: '/trainers',
+            redirect: (context, state) => '/settings/team',
+          ),
+          GoRoute(
+            path: '/settings/team',
             builder: (context, state) => const TrainersPage(),
           ),
           GoRoute(
             path: '/trainers/:id',
+            builder: (context, state) => TrainerDetailsPage(
+              trainerId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/settings/team/:id',
             builder: (context, state) => TrainerDetailsPage(
               trainerId: state.pathParameters['id']!,
             ),

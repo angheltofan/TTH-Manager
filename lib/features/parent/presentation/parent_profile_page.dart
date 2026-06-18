@@ -6,9 +6,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../settings/presentation/widgets/settings_widgets.dart';
-import 'widgets/parent_responsive_scaffold.dart';
 
-/// Parent Settings page mounted at `/parent/profile`. Visually identical
+/// Parent Settings page mounted at `/parent/settings`. Visually identical
 /// to the staff `SettingsPage` — every primitive is imported from the
 /// shared [settings_widgets] module so this file stays a thin
 /// composition.
@@ -20,10 +19,8 @@ import 'widgets/parent_responsive_scaffold.dart';
 ///   4. Despre aplicație — TTH Manager / Tales & Tech HUB / v0.1.0
 ///   5. Deconectare     — sole sign-out surface for the parent role
 ///
-/// Hosted inside [ParentResponsiveScaffold] so the desktop sidebar / mobile
-/// bottom-nav shell stays consistent with the rest of the parent portal.
-/// The page itself is titled "Setări"; the navigation entry remains
-/// "Profil" since the parent nav was not asked to be renamed.
+/// Rendered inside the persistent `ParentShell` (mounted by the parent
+/// `ShellRoute` in `router.dart`) — this widget owns only its content.
 class ParentProfilePage extends ConsumerWidget {
   const ParentProfilePage({super.key});
 
@@ -34,13 +31,7 @@ class ParentProfilePage extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final theme = Theme.of(context);
 
-    return ParentResponsiveScaffold(
-      // Bottom-nav order is Dashboard (0) / Informații centru (1) /
-      // Setări (2). Must match `ParentBottomNav._items` and
-      // `ParentSidebar._items`.
-      bottomNavIndex: 2,
-      title: 'Setări',
-      body: ListView(
+    return ListView(
         padding: const EdgeInsets.all(24),
         children: [
           // Page title — same typography/spacing as the staff Settings.
@@ -220,7 +211,6 @@ class ParentProfilePage extends ConsumerWidget {
 
           const SizedBox(height: 16),
         ],
-      ),
     );
   }
 }

@@ -23,19 +23,18 @@ class ParentSidebar extends StatelessWidget {
     SidebarNavItem(
       icon: Icons.info_outlined,
       label: 'Informații centru',
-      path: '/parent/about',
+      path: '/parent/info',
     ),
     SidebarNavItem(
       icon: Icons.tune_outlined,
       label: 'Setări',
-      path: '/parent/profile',
+      path: '/parent/settings',
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
     return const AppSidebarBase(
-      logoTitle: 'TTH Manager',
       logoSubtitle: 'Tales & Tech HUB',
       items: _items,
     );

@@ -6,14 +6,14 @@ import '../../../core/utils/responsive.dart';
 import '../../children/presentation/widgets/details_section_card.dart';
 import '../../settings/presentation/widgets/settings_widgets.dart';
 import 'widgets/parent_quick_contact_card.dart';
-import 'widgets/parent_responsive_scaffold.dart';
 
-/// Static "Informații centru" page mounted at `/parent/about`.
+/// Static "Informații centru" page mounted at `/parent/info`.
+///
+/// Rendered inside the persistent `ParentShell` (mounted by the parent
+/// `ShellRoute` in `router.dart`) — owns only its content.
 ///
 /// Composed exclusively from existing shared primitives:
-///   • [ParentResponsiveScaffold] — desktop sidebar / mobile bottom nav
 ///   • [DetailsSectionCard]       — every section shell
-///   • [ResponsiveGrid]           — workshop category grid
 ///   • [SettingsTile]             — mission info rows (with colored
 ///                                  icon tiles)
 ///   • [ParentQuickContactCard]   — contact section
@@ -21,8 +21,7 @@ import 'widgets/parent_responsive_scaffold.dart';
 ///
 /// Five sections in order: Hero, Workshop categories (2-col grid on
 /// tablet/desktop), Mission, Program + Location (side-by-side on wide),
-/// Contact CTA. Page title and top-bar title both read "Informații
-/// centru" so the menu label, top bar and page header agree.
+/// Contact CTA.
 class ParentAboutPage extends ConsumerWidget {
   const ParentAboutPage({super.key});
 
@@ -30,27 +29,23 @@ class ParentAboutPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
 
-    return ParentResponsiveScaffold(
-      bottomNavIndex: 1,
-      title: 'Informații centru',
-      body: SingleChildScrollView(
-        padding: context.mobilePadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _PageHeader(theme: theme),
-            SizedBox(height: context.sectionGap),
-            const _HeroCard(),
-            SizedBox(height: context.sectionGap),
-            const _WorkshopCategoriesSection(),
-            SizedBox(height: context.sectionGap),
-            const _MissionCard(),
-            SizedBox(height: context.sectionGap),
-            const _ProgramAndLocationSection(),
-            SizedBox(height: context.sectionGap),
-            const ParentQuickContactCard(title: 'Contactează-ne'),
-          ],
-        ),
+    return SingleChildScrollView(
+      padding: context.mobilePadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _PageHeader(theme: theme),
+          SizedBox(height: context.sectionGap),
+          const _HeroCard(),
+          SizedBox(height: context.sectionGap),
+          const _WorkshopCategoriesSection(),
+          SizedBox(height: context.sectionGap),
+          const _MissionCard(),
+          SizedBox(height: context.sectionGap),
+          const _ProgramAndLocationSection(),
+          SizedBox(height: context.sectionGap),
+          const ParentQuickContactCard(title: 'Contactează-ne'),
+        ],
       ),
     );
   }

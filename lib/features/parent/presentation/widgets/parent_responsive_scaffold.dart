@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/desktop_top_bar.dart';
@@ -12,51 +13,34 @@ import 'parent_sidebar.dart';
 /// same viewport size.
 const _kSidebarBreakpoint = 1200.0;
 
-/// Shared scaffold used by all three top-level parent pages (Acasă,
-/// Profil, Despre). Visual structure mirrors the staff [AppShell] 1:1
-/// by reusing the same top-bar widgets:
-///   - desktop (≥ 1200): [ParentSidebar] + content column whose top is
-///     [AppDesktopTopBar] (title left, notification bell + user menu
-///     right) and a hairline divider below.
-///   - mobile/tablet: [AppTopBar] (toolbar 56 + bottom divider, full
-///     `compact` user menu on small phones) + [ParentBottomNav].
+/// Persistent parent-portal scaffold. Mounted **once** by the `ShellRoute`
+/// in `router.dart` and wraps every `/parent/*` route. The `child` slot
+/// is the only thing that swaps when the parent navigates between
+/// Dashboard / Informații centru / Setări — sidebar, top bar, bottom nav
+/// and the `parentNotificationsRealtimeProvider` channel stay alive.
 ///
-/// `bottomNavIndex` matches [ParentBottomNav]:
-///   0 = Dashboard, 1 = Informații centru, 2 = Setări.
-///
-/// `title` is unused at runtime — both shared top bars derive their
-/// title from the current route via `titleForPath`, which knows about
-/// `/parent/*` paths. The parameter is kept for API stability so all
-/// existing call sites continue to compile and for documentation at
-/// the page level.
+/// Bottom-nav selection is derived from the current route, so individual
+/// pages never have to pass an index. The mapping mirrors `ParentSidebar`
+/// and `ParentBottomNav`:
+///   /parent         → 0 (Dashboard)
+///   /parent/info    → 1 (Informații centru)
+///   /parent/settings→ 2 (Setări)
+///   anything else   → unselected (e.g. /parent/notifications)
 class ParentResponsiveScaffold extends ConsumerWidget {
-  const ParentResponsiveScaffold({
-    super.key,
-    required this.title,
-    required this.body,
-    required this.bottomNavIndex,
-    this.onRefresh,
-  });
+  const ParentResponsiveScaffold({super.key, required this.child});
 
-  final String title;
-  final Widget body;
-  final int bottomNavIndex;
-  final Future<void> Function()? onRefresh;
+  final Widget child;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Parent-side Supabase Realtime sync for the `notifications` table.
-    // Watched here (instead of inside `ParentBottomNav`) so the channel
-    // is also alive on desktop, where the bottom nav widget never mounts
-    // and the sidebar is rendered instead. AutoDispose tears the channel
-    // down on sign-out.
+    // Watched here so the channel stays open across navigation — the
+    // shell is mounted once for the lifetime of the parent session.
     ref.watch(parentNotificationsRealtimeProvider);
 
     final theme = Theme.of(context);
-
-    final wrappedBody = onRefresh != null
-        ? RefreshIndicator(onRefresh: onRefresh!, child: body)
-        : body;
+    final location = GoRouterState.of(context).uri.path;
+    final bottomNavIndex = _indexForPath(location);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -74,7 +58,7 @@ class ParentResponsiveScaffold extends ConsumerWidget {
                       const AppDesktopTopBar(
                         viewAllNotificationRoute: '/parent/notifications',
                       ),
-                      Expanded(child: ClipRect(child: wrappedBody)),
+                      Expanded(child: ClipRect(child: child)),
                     ],
                   ),
                 ),
@@ -89,10 +73,23 @@ class ParentResponsiveScaffold extends ConsumerWidget {
           appBar: const AppTopBar(
             viewAllNotificationRoute: '/parent/notifications',
           ),
-          body: wrappedBody,
-          bottomNavigationBar: ParentBottomNav(currentIndex: bottomNavIndex),
+          body: child,
+          bottomNavigationBar:
+              ParentBottomNav(currentIndex: bottomNavIndex),
         );
       },
     );
+  }
+
+  static int _indexForPath(String location) {
+    if (location == '/parent') return 0;
+    if (location == '/parent/info' || location.startsWith('/parent/info/')) {
+      return 1;
+    }
+    if (location == '/parent/settings' ||
+        location.startsWith('/parent/settings/')) {
+      return 2;
+    }
+    return -1;
   }
 }
