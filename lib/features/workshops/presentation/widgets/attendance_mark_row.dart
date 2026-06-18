@@ -54,7 +54,11 @@ class _MobileRow extends StatelessWidget {
             // ── Row 1: avatar + name + parent ───────────────────────────
             Row(
               children: [
-                ChildAvatar(name: fullName, size: 36),
+                ChildAvatar(
+                  name: fullName,
+                  size: 36,
+                  workshopType: r.workshopType,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -173,7 +177,11 @@ class _DesktopRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            ChildAvatar(name: fullName, size: 40),
+            ChildAvatar(
+              name: fullName,
+              size: 40,
+              workshopType: r.workshopType,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

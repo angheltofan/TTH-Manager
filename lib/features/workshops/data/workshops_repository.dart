@@ -5,6 +5,63 @@ import '../../dashboard/domain/dashboard_workshop.dart';
 import '../domain/scheduled_workshop.dart';
 import '../domain/workshop_detail_row.dart';
 
+/// Reason a [WorkshopsRepository.deleteWorkshopHard] call refused. Lets
+/// the UI render a friendly message without string-matching exceptions.
+///
+///   • [hasAttendance] — the safety gate found attendance rows
+///     referencing this scheduled workshop (one-off delete only). The
+///     UI may re-call with `includeAttendance: true` after the admin
+///     explicitly confirms historical-data loss.
+///   • [recurringSeries] — `deleteWorkshopOneOff` was called for a
+///     scheduled workshop that belongs to a recurring series. The
+///     caller must use `deleteWorkshopSeries` instead.
+///   • [refusedByServer] — the DELETE statement reached the server but
+///     no row was actually removed. Typical causes: an RLS policy
+///     denies DELETE for this caller (the request still returns 2xx
+///     but matches zero rows).
+enum WorkshopDeleteBlockedReason {
+  hasAttendance,
+  recurringSeries,
+  refusedByServer,
+}
+
+/// Thrown by `deleteWorkshopOneOff` / `deleteWorkshopSeries` when the
+/// safety gate refuses the delete OR when the DELETE statement returned
+/// successfully but did not remove the targeted row. Never thrown for
+/// infrastructure errors (those propagate as `PostgrestException` /
+/// generic errors).
+class WorkshopDeleteBlockedException implements Exception {
+  const WorkshopDeleteBlockedException(this.reason);
+  final WorkshopDeleteBlockedReason reason;
+
+  @override
+  String toString() =>
+      'WorkshopDeleteBlockedException(reason: ${reason.name})';
+}
+
+/// Pre-flight counts for a `deleteWorkshopSeries` call. The UI uses
+/// these to choose the right confirmation dialog and to phrase the
+/// strong "history will be lost" warning when [attendanceCount] > 0.
+class SeriesDeletionImpact {
+  const SeriesDeletionImpact({
+    required this.scheduledCount,
+    required this.attendanceCount,
+    required this.enrollmentCount,
+  });
+
+  /// Number of `scheduled_workshops` rows that would be deleted.
+  final int scheduledCount;
+
+  /// Number of `attendance` rows that reference those scheduled
+  /// workshops. When non-zero the UI must surface the second warning
+  /// before calling `deleteWorkshopSeries(includeAttendance: true)`.
+  final int attendanceCount;
+
+  /// Number of `workshop_enrollments` rows for the series that would
+  /// be removed.
+  final int enrollmentCount;
+}
+
 class WorkshopsRepository {
   const WorkshopsRepository(this._client);
 
@@ -311,6 +368,251 @@ class WorkshopsRepository {
         .from('scheduled_workshops')
         .update({'is_active': false})
         .eq('id', workshopId);
+  }
+
+  /// Permanently deletes a **one-off** scheduled workshop row. Admin-only.
+  ///
+  /// Refuses (with [WorkshopDeleteBlockedException]) when:
+  ///   • the row belongs to a recurring series (`series_id` /
+  ///     `recurring_series_id` set) → caller must use
+  ///     [deleteWorkshopSeries] instead;
+  ///   • attendance rows reference it and the caller did NOT pass
+  ///     `includeAttendance: true` (the UI must obtain explicit admin
+  ///     confirmation before passing that flag);
+  ///   • the DELETE matches zero rows but the row is still present
+  ///     server-side (e.g. RLS denial).
+  ///
+  /// Uses `delete().select('id')` to learn whether the DELETE actually
+  /// affected a row, then re-`SELECT`s on empty to distinguish "already
+  /// gone" from "server refused".
+  Future<void> deleteWorkshopOneOff({
+    required bool isAdmin,
+    required String workshopId,
+    bool includeAttendance = false,
+  }) async {
+    if (!isAdmin) throw StateError('Unauthorized role');
+    if (kDebugMode) {
+      debugPrint(
+          '[Workshops] deleteWorkshopOneOff id=$workshopId attn=$includeAttendance');
+    }
+
+    // 1. Refuse if this row belongs to a recurring series. The UI now
+    //    routes recurring instances to deleteWorkshopSeries; this check
+    //    is defence in depth.
+    final meta = await _client
+        .from('scheduled_workshops')
+        .select('series_id, recurring_series_id')
+        .eq('id', workshopId)
+        .maybeSingle();
+    if (meta != null) {
+      final sid = meta['series_id'] as String?;
+      final rsid = meta['recurring_series_id'] as String?;
+      final belongsToSeries =
+          (sid != null && sid.isNotEmpty) || (rsid != null && rsid.isNotEmpty);
+      if (belongsToSeries) {
+        throw const WorkshopDeleteBlockedException(
+          WorkshopDeleteBlockedReason.recurringSeries,
+        );
+      }
+    }
+
+    // 2. Attendance gate. When `includeAttendance` is false, refuse
+    //    on any attendance row. When true, delete attendance first so
+    //    the scheduled_workshops DELETE has no FK referrers left.
+    if (!includeAttendance) {
+      final att = await _client
+          .from('attendance')
+          .select('id')
+          .eq('scheduled_workshop_id', workshopId)
+          .limit(1);
+      if ((att as List).isNotEmpty) {
+        throw const WorkshopDeleteBlockedException(
+          WorkshopDeleteBlockedReason.hasAttendance,
+        );
+      }
+    } else {
+      await _client
+          .from('attendance')
+          .delete()
+          .eq('scheduled_workshop_id', workshopId);
+    }
+
+    // 3. Verified hard-delete.
+    final deleted = await _client
+        .from('scheduled_workshops')
+        .delete()
+        .eq('id', workshopId)
+        .select('id');
+    if ((deleted as List).isNotEmpty) return;
+
+    final stillThere = await _client
+        .from('scheduled_workshops')
+        .select('id')
+        .eq('id', workshopId)
+        .limit(1);
+    if ((stillThere as List).isNotEmpty) {
+      throw const WorkshopDeleteBlockedException(
+        WorkshopDeleteBlockedReason.refusedByServer,
+      );
+    }
+  }
+
+  /// Measures what a `deleteWorkshopSeries` call would touch, so the UI
+  /// can render an accurate confirmation dialog (number of sessions
+  /// affected, attendance rows that would be lost, enrolled-children
+  /// links that would be removed).
+  Future<SeriesDeletionImpact> measureSeriesDeletionImpact({
+    required String seriesId,
+  }) async {
+    // 1. All scheduled_workshops belonging to the series. Match both
+    //    the canonical `series_id` and the legacy `recurring_series_id`
+    //    column so older rows that haven't been backfilled are still
+    //    discovered.
+    final scheduled = await _client
+        .from('scheduled_workshops')
+        .select('id')
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId');
+    final scheduledIds = (scheduled as List)
+        .map((e) => (e as Map<String, dynamic>)['id'] as String)
+        .toList(growable: false);
+
+    // 2. Enrollment links for the series.
+    final enrolls = await _client
+        .from('workshop_enrollments')
+        .select('id')
+        .eq('series_id', seriesId);
+    final enrollmentCount = (enrolls as List).length;
+
+    // 3. Attendance for those scheduled workshops (skip the query when
+    //    there are no scheduled workshops — `.inFilter` with [] is a
+    //    PostgREST error).
+    var attendanceCount = 0;
+    if (scheduledIds.isNotEmpty) {
+      final att = await _client
+          .from('attendance')
+          .select('id')
+          .inFilter('scheduled_workshop_id', scheduledIds);
+      attendanceCount = (att as List).length;
+    }
+
+    return SeriesDeletionImpact(
+      scheduledCount: scheduledIds.length,
+      attendanceCount: attendanceCount,
+      enrollmentCount: enrollmentCount,
+    );
+  }
+
+  /// Permanently deletes an entire recurring workshop series. Admin-only.
+  ///
+  /// Order (each step awaited and verified):
+  ///   1. Resolve all `scheduled_workshops.id`s for the series (matches
+  ///      `series_id` OR legacy `recurring_series_id`).
+  ///   2. If [includeAttendance] is false AND any attendance row
+  ///      references those scheduled workshops → refuse with
+  ///      [WorkshopDeleteBlockedException.hasAttendance]. The UI must
+  ///      surface a second warning and re-call with
+  ///      `includeAttendance: true` for the admin to proceed.
+  ///   3. Delete `attendance` rows for those scheduled workshops (only
+  ///      when `includeAttendance` is true).
+  ///   4. Delete `workshop_enrollments` rows for the series.
+  ///   5. Delete the `scheduled_workshops` rows themselves.
+  ///   6. Delete the `workshop_series` row.
+  ///   7. Verify nothing remains (defence in depth — surfaces silent
+  ///      RLS denials as [WorkshopDeleteBlockedReason.refusedByServer]).
+  ///
+  /// Once step 6 succeeds, the generator cannot recreate the series
+  /// because it iterates `workshop_series` directly — and there is no
+  /// row left to iterate.
+  Future<void> deleteWorkshopSeries({
+    required bool isAdmin,
+    required String seriesId,
+    bool includeAttendance = false,
+  }) async {
+    if (!isAdmin) throw StateError('Unauthorized role');
+    if (kDebugMode) {
+      debugPrint(
+          '[Workshops] deleteWorkshopSeries seriesId=$seriesId attn=$includeAttendance');
+    }
+
+    // 1. Resolve scheduled-workshop ids.
+    final scheduled = await _client
+        .from('scheduled_workshops')
+        .select('id')
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId');
+    final scheduledIds = (scheduled as List)
+        .map((e) => (e as Map<String, dynamic>)['id'] as String)
+        .toList(growable: false);
+
+    // 2. Attendance gate.
+    if (scheduledIds.isNotEmpty && !includeAttendance) {
+      final att = await _client
+          .from('attendance')
+          .select('id')
+          .inFilter('scheduled_workshop_id', scheduledIds)
+          .limit(1);
+      if ((att as List).isNotEmpty) {
+        throw const WorkshopDeleteBlockedException(
+          WorkshopDeleteBlockedReason.hasAttendance,
+        );
+      }
+    }
+
+    // 3. Delete attendance (when allowed).
+    if (scheduledIds.isNotEmpty && includeAttendance) {
+      await _client
+          .from('attendance')
+          .delete()
+          .inFilter('scheduled_workshop_id', scheduledIds);
+    }
+
+    // 4. Delete enrollments for the series.
+    await _client
+        .from('workshop_enrollments')
+        .delete()
+        .eq('series_id', seriesId);
+
+    // 5. Delete scheduled_workshops belonging to the series.
+    if (scheduledIds.isNotEmpty) {
+      final deletedScheduled = await _client
+          .from('scheduled_workshops')
+          .delete()
+          .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId')
+          .select('id');
+      if (kDebugMode) {
+        debugPrint(
+            '[Workshops] series delete: scheduled rows removed=${(deletedScheduled as List).length}');
+      }
+    }
+
+    // 6. Delete the workshop_series row itself.
+    final deletedSeries = await _client
+        .from('workshop_series')
+        .delete()
+        .eq('id', seriesId)
+        .select('id');
+    if (kDebugMode) {
+      debugPrint(
+          '[Workshops] series delete: series rows removed=${(deletedSeries as List).length}');
+    }
+
+    // 7. Verify everything is gone. If anything remains, surface a
+    //    refused-by-server error so the UI doesn't lie.
+    final remainingScheduled = await _client
+        .from('scheduled_workshops')
+        .select('id')
+        .or('series_id.eq.$seriesId,recurring_series_id.eq.$seriesId')
+        .limit(1);
+    final remainingSeries = await _client
+        .from('workshop_series')
+        .select('id')
+        .eq('id', seriesId)
+        .limit(1);
+    if ((remainingScheduled as List).isNotEmpty ||
+        (remainingSeries as List).isNotEmpty) {
+      throw const WorkshopDeleteBlockedException(
+        WorkshopDeleteBlockedReason.refusedByServer,
+      );
+    }
   }
 
   // ── Attendance ────────────────────────────────────────────────────────────

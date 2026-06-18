@@ -9,6 +9,7 @@ class WorkshopDetailRow {
     required this.endTime,
     required this.trainerId,
     this.seriesId,
+    this.recurringSeriesId,
     this.trainerName,
     this.childId,
     this.childFirstName,
@@ -26,9 +27,15 @@ class WorkshopDetailRow {
   final String startTime;
   final String endTime;
   final String trainerId;
-  /// The recurring series id this scheduled workshop belongs to.
-  /// Used to load and manage [workshop_enrollments].
+
+  /// Canonical FK to `workshop_series.id` (current column).
   final String? seriesId;
+
+  /// Legacy column for series id used by older rows that haven't been
+  /// backfilled. Code that decides "is this a recurring instance?"
+  /// must check both.
+  final String? recurringSeriesId;
+
   final String? trainerName;
   final String? childId;
   final String? childFirstName;
@@ -36,6 +43,13 @@ class WorkshopDetailRow {
   final String? parentName;
   final String? attendanceStatus;
   final String? attendanceObservation;
+
+  /// True when this scheduled workshop was created from (or attached
+  /// to) a recurring series. Used to gate the hard-delete action —
+  /// recurring instances must only be cancelled.
+  bool get isRecurringInstance =>
+      (seriesId != null && seriesId!.isNotEmpty) ||
+      (recurringSeriesId != null && recurringSeriesId!.isNotEmpty);
 
   factory WorkshopDetailRow.fromMap(Map<String, dynamic> map) {
     return WorkshopDetailRow(
@@ -47,6 +61,8 @@ class WorkshopDetailRow {
       startTime: map['start_time'] as String,
       endTime: map['end_time'] as String,
       trainerId: map['trainer_id'] as String,
+      seriesId: map['series_id'] as String?,
+      recurringSeriesId: map['recurring_series_id'] as String?,
       trainerName: map['trainer_name'] as String?,
       childId: map['child_id'] as String?,
       childFirstName: map['child_first_name'] as String?,
