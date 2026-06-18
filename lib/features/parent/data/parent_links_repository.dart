@@ -148,6 +148,51 @@ class ParentLinksRepository {
     }
   }
 
+  /// Invokes `generate_parent_setup_invite` — the fallback used when
+  /// email delivery is not available. Returns the raw activation code
+  /// alongside a pre-formatted Romanian message the admin can copy and
+  /// share via WhatsApp, Gmail, SMS, etc.
+  ///
+  /// Calling this invalidates any previously-issued unconsumed token
+  /// for the parent, so the most recently shared code is always the
+  /// only working one.
+  ///
+  /// Throws [ParentInviteException] for any non-2xx response so the UI
+  /// can map status → user-facing message; the same convention as
+  /// [prepareCreateParent].
+  Future<ManualParentInvite> generateManualInvite({
+    required bool isAdmin,
+    required String parentId,
+  }) async {
+    if (!isAdmin) throw StateError('Unauthorized role');
+    try {
+      final response = await _client.functions.invoke(
+        'generate_parent_setup_invite',
+        body: {'parent_id': parentId},
+      );
+      final status = response.status;
+      final data = response.data;
+      if (status != 200) {
+        throw ParentInviteException(
+          status: status,
+          message: _extractErrorMessage(data, status),
+        );
+      }
+      if (data is! Map<String, dynamic>) {
+        throw ParentInviteException(
+          status: status,
+          message: 'Răspuns neașteptat de la server.',
+        );
+      }
+      return ManualParentInvite.fromMap(data);
+    } on FunctionException catch (e) {
+      throw ParentInviteException(
+        status: e.status,
+        message: _extractErrorMessage(e.details, e.status),
+      );
+    }
+  }
+
   static String _extractErrorMessage(dynamic body, int status) {
     if (body is Map) {
       final err = body['error'];

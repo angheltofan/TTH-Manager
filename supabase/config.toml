@@ -12,3 +12,9 @@ verify_jwt = true
 # setup token. The function's defense in depth is the random 256-bit
 # token + sha256(pepper) + per-token attempt counter + 24h TTL.
 verify_jwt = false
+
+[functions.generate_parent_setup_invite]
+# Admin-only fallback for manual parent invitations (used when Resend
+# is unavailable). Verifies JWT at the platform level AND re-checks
+# is_admin() inside the function before minting a token.
+verify_jwt = true

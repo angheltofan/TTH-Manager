@@ -94,3 +94,34 @@ class ParentInviteException implements Exception {
   @override
   String toString() => 'ParentInviteException($status): $message';
 }
+
+/// Successful response from `generate_parent_setup_invite`. Carries the
+/// raw activation code that the admin will hand to the parent through
+/// WhatsApp / Gmail / SMS / paper. The code is the same kind of value
+/// the email flow embeds in the link query string, so the parent setup
+/// page accepts it identically.
+class ManualParentInvite {
+  const ManualParentInvite({
+    required this.email,
+    required this.code,
+    required this.setupUrl,
+    required this.message,
+    required this.expiresAt,
+  });
+
+  final String email;
+  final String code;
+  final String setupUrl;
+  final String message;
+  final DateTime expiresAt;
+
+  factory ManualParentInvite.fromMap(Map<String, dynamic> map) {
+    return ManualParentInvite(
+      email: (map['email'] as String? ?? '').trim(),
+      code: (map['code'] as String? ?? '').trim(),
+      setupUrl: (map['setup_url'] as String? ?? '').trim(),
+      message: (map['message'] as String? ?? '').trim(),
+      expiresAt: DateTime.parse(map['expires_at'] as String),
+    );
+  }
+}

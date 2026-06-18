@@ -36,21 +36,21 @@ class ParentSetupPage extends ConsumerStatefulWidget {
 class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
+  final _codeCtrl = TextEditingController();
   final _pwdCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _saving = false;
   bool _obscurePwd = true;
   bool _obscureConfirm = true;
 
-  // The raw setup token, read from the URL query at initState. Kept
-  // out of the form on purpose — it's a 256-bit opaque value, no user
-  // would ever type it. If the URL didn't carry one, we surface a
-  // dedicated error UI instead of asking the parent to paste 43 chars.
+  // The raw setup token, populated from the URL query at initState when
+  // the parent clicks an email link. When the URL has no `?token=` the
+  // page falls back to a manual entry mode: the parent (or admin
+  // pasting on their behalf) types the activation code received via
+  // WhatsApp / Gmail directly into the form. Both paths post the same
+  // `{email, token, password}` payload to `complete_parent_setup`.
   String? _token;
-
-  // True when the URL had neither `?token=` nor any usable state. The
-  // page then renders a short "link invalid" screen with a back CTA.
-  bool _missingToken = false;
+  bool _manualCodeMode = false;
 
   @override
   void initState() {
@@ -62,7 +62,7 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
       _emailCtrl.text = emailParam.toLowerCase();
     }
     if (tokenParam.isEmpty) {
-      _missingToken = true;
+      _manualCodeMode = true;
     } else {
       _token = tokenParam;
     }
@@ -71,6 +71,7 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
   @override
   void dispose() {
     _emailCtrl.dispose();
+    _codeCtrl.dispose();
     _pwdCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -78,9 +79,9 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final token = _token;
+    final token = _manualCodeMode ? _codeCtrl.text.trim() : _token;
     if (token == null || token.isEmpty) {
-      setState(() => _missingToken = true);
+      setState(() => _manualCodeMode = true);
       return;
     }
 
@@ -184,6 +185,20 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
     return null;
   }
 
+  /// Accepts the base64url shape the Edge Function mints: 20–128 chars
+  /// from [A-Za-z0-9_-]. Matches the server-side regex in
+  /// `complete_parent_setup` so format errors are caught client-side
+  /// before a wasted round trip.
+  String? _validateCode(String? v) {
+    final value = (v ?? '').trim();
+    if (value.isEmpty) return 'Codul de activare este obligatoriu.';
+    final re = RegExp(r'^[A-Za-z0-9_-]{20,128}$');
+    if (!re.hasMatch(value)) {
+      return 'Cod invalid. Verifică dacă l-ai copiat complet.';
+    }
+    return null;
+  }
+
   String? _validatePwd(String? v) {
     final value = v ?? '';
     if (value.isEmpty) return 'Parola este obligatorie.';
@@ -209,9 +224,7 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
             constraints: const BoxConstraints(maxWidth: 420),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: _missingToken
-                  ? _MissingLinkBody(theme: theme)
-                  : _buildForm(theme),
+              child: _buildForm(theme),
             ),
           ),
         ),
@@ -233,8 +246,11 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Alege o parolă pentru contul tău. O vei folosi la '
-            'autentificările viitoare.',
+            _manualCodeMode
+                ? 'Introdu emailul și codul de activare primit de la '
+                    'administrator, apoi alege o parolă.'
+                : 'Alege o parolă pentru contul tău. O vei folosi la '
+                    'autentificările viitoare.',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.outline),
           ),
@@ -252,6 +268,21 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
             ),
             validator: _validateEmail,
           ),
+          if (_manualCodeMode) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _codeCtrl,
+              enabled: !_saving,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Cod activare',
+                hintText: 'Lipește codul primit de la administrator',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              validator: _validateCode,
+            ),
+          ],
           const SizedBox(height: 12),
           TextFormField(
             controller: _pwdCtrl,
@@ -323,38 +354,3 @@ class _ParentSetupPageState extends ConsumerState<ParentSetupPage> {
   }
 }
 
-class _MissingLinkBody extends StatelessWidget {
-  const _MissingLinkBody({required this.theme});
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.link_off, size: 40, color: theme.colorScheme.error),
-        const SizedBox(height: 16),
-        Text(
-          'Link invalid sau incomplet',
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w700),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Deschide linkul din emailul "Setează-ți parola". '
-          'Dacă nu îl găsești, cere administratorului să trimită '
-          'o invitație nouă.',
-          style: theme.textTheme.bodyMedium
-              ?.copyWith(color: theme.colorScheme.outline),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
-        OutlinedButton(
-          onPressed: () => context.go('/login'),
-          child: const Text('Înapoi la autentificare'),
-        ),
-      ],
-    );
-  }
-}

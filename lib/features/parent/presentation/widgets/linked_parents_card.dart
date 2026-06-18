@@ -8,6 +8,7 @@ import '../../../children/presentation/widgets/details_section_card.dart';
 import '../../domain/parent_link.dart';
 import '../../providers/parent_links_providers.dart';
 import 'add_parent_dialog.dart';
+import 'manual_invite_dialog.dart';
 
 /// Admin-only card on the Child Details page that lists the parents
 /// linked to the current child via `public.child_parents`.
@@ -77,6 +78,8 @@ class LinkedParentsCard extends ConsumerWidget {
                   link: links[i],
                   isAdmin: isAdmin,
                   onRemove: () => _removeLink(context, ref, links[i]),
+                  onCopyInvite: () =>
+                      _copyManualInvite(context, ref, links[i]),
                 ),
               ],
             ],
@@ -93,6 +96,49 @@ class LinkedParentsCard extends ConsumerWidget {
     );
     if (ok == true) {
       ref.invalidate(linkedParentsProvider(childId));
+    }
+  }
+
+  /// Fallback to email-based invitations: mints a fresh activation
+  /// code via the `generate_parent_setup_invite` Edge Function and
+  /// surfaces it through a copy-friendly dialog. The existing Resend
+  /// flow remains untouched — this is purely additive so the admin can
+  /// hand off the invitation through WhatsApp / Gmail / SMS while
+  /// email delivery is unreliable.
+  Future<void> _copyManualInvite(
+      BuildContext context, WidgetRef ref, ParentLink link) async {
+    final isAdmin =
+        ref.read(currentProfileProvider).valueOrNull?.isAdmin ?? false;
+    if (!isAdmin) return;
+    final repo = ref.read(parentLinksRepositoryProvider);
+
+    // Block clicks behind a small loading shield so the admin sees
+    // something is happening — the request typically resolves in under
+    // a second but can take longer cold.
+    final dialogContext = context;
+    showDialog<void>(
+      context: dialogContext,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final invite = await repo.generateManualInvite(
+        isAdmin: isAdmin,
+        parentId: link.parentId,
+      );
+      if (!dialogContext.mounted) return;
+      Navigator.of(dialogContext, rootNavigator: true).pop();
+      await showDialog<void>(
+        context: dialogContext,
+        builder: (_) => ManualInviteDialog(invite: invite),
+      );
+    } catch (e) {
+      if (!dialogContext.mounted) return;
+      Navigator.of(dialogContext, rootNavigator: true).pop();
+      ScaffoldMessenger.of(dialogContext).showSnackBar(
+        SnackBar(content: Text(_errorMessage(e))),
+      );
     }
   }
 
@@ -160,11 +206,13 @@ class _LinkRow extends StatelessWidget {
     required this.link,
     required this.isAdmin,
     required this.onRemove,
+    required this.onCopyInvite,
   });
 
   final ParentLink link;
   final bool isAdmin;
   final VoidCallback onRemove;
+  final VoidCallback onCopyInvite;
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +266,17 @@ class _LinkRow extends StatelessWidget {
             ],
           ),
         ),
-        if (isAdmin)
+        if (isAdmin) ...[
+          TextButton.icon(
+            onPressed: onCopyInvite,
+            icon: const Icon(Icons.copy_all_rounded, size: 14),
+            label: const Text('Copiază invitația'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.purple,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              textStyle: const TextStyle(fontSize: 12),
+            ),
+          ),
           TextButton(
             onPressed: onRemove,
             style: TextButton.styleFrom(
@@ -228,6 +286,7 @@ class _LinkRow extends StatelessWidget {
             ),
             child: const Text('Elimină'),
           ),
+        ],
       ],
     );
   }
