@@ -92,6 +92,28 @@ class SettingsPage extends ConsumerWidget {
 
           const SizedBox(height: 16),
 
+          // ── Echipa centrului ──
+          //
+          // Trainer administration moved here from the sidebar when
+          // "Asistent" took its place. The list page itself is unchanged
+          // — only the entry point changed.
+          SettingsGroup(
+            title: 'Echipa centrului',
+            icon: Icons.badge_outlined,
+            iconColor: AppColors.purple,
+            children: [
+              SettingsTile(
+                icon: Icons.groups_2_outlined,
+                title: 'Echipa centrului',
+                subtitle: 'Administrare traineri și membri ai echipei',
+                onTap: () => context.go('/settings/team'),
+                showChevron: true,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
           // ── Securitate ──
           SettingsGroup(
             title: 'Securitate',
