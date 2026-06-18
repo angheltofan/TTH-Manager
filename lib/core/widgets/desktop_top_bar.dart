@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../features/auth/providers/auth_providers.dart';
 import '../utils/permission_utils.dart';
-import 'app_top_bar.dart';
 import 'notification_bell.dart';
 import 'user_menu.dart';
 
@@ -23,7 +21,6 @@ class AppDesktopTopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final path = GoRouterState.of(context).uri.path;
     final profileAsync = ref.watch(currentProfileProvider);
     final theme = Theme.of(context);
 
@@ -34,13 +31,17 @@ class AppDesktopTopBar extends ConsumerWidget {
           height: 60,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
+            // Brand on the left ("TTH Manager"); actions on the right.
+            // Page-specific titles live inside the page body — the
+            // header title is always the product name.
             child: Row(
               children: [
                 Text(
-                  titleForPath(path),
+                  'TTH Manager',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 20,
+                    fontSize: 18,
+                    letterSpacing: -0.2,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),

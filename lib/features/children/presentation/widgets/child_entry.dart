@@ -215,20 +215,16 @@ class _WideRow extends StatelessWidget {
             : Text('—', style: TextStyle(color: theme.colorScheme.outline))),
           SizedBox(width: 80, child: _ActiveBadge(isActive: child.isActive)),
           SizedBox(
-            width: isAdmin ? 110 : 80,
+            width: 48,
             child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              _ActionBtn(icon: Icons.visibility_outlined, color: AppColors.info, tooltip: 'Detalii', onTap: () => context.go('/children/${child.id}')),
-              if (isAdmin) ...[
-                const SizedBox(width: 4),
-                _ActionBtn(icon: Icons.edit_outlined, color: AppColors.warning, tooltip: 'Editează', onTap: () => context.go('/children/${child.id}/edit')),
-                const SizedBox(width: 4),
-                _ChildActionsMenu(
-                  isActive: isActive,
-                  onDeactivate: onDeactivate,
-                  onReactivate: onReactivate,
-                  onDeletePermanently: onDeletePermanently,
-                ),
-              ],
+              _ChildActionsMenu(
+                childId: child.id,
+                isAdmin: isAdmin,
+                isActive: isActive,
+                onDeactivate: onDeactivate,
+                onReactivate: onReactivate,
+                onDeletePermanently: onDeletePermanently,
+              ),
             ]),
           ),
         ]),
@@ -286,37 +282,48 @@ class _NarrowCard extends StatelessWidget {
               _AttStatusText(status: child.lastAttStatus),
             ]),
           ],
-          if (isAdmin) ...[
-            const SizedBox(height: 10),
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              _ActionBtn(icon: Icons.visibility_outlined, color: AppColors.info, tooltip: 'Detalii', onTap: () => context.go('/children/${child.id}')),
-              const SizedBox(width: 8),
-              _ActionBtn(icon: Icons.edit_outlined, color: AppColors.warning, tooltip: 'Editează', onTap: () => context.go('/children/${child.id}/edit')),
-              const SizedBox(width: 8),
-              _ChildActionsMenu(
-                isActive: isActive,
-                onDeactivate: onDeactivate,
-                onReactivate: onReactivate,
-                onDeletePermanently: onDeletePermanently,
-              ),
-            ]),
-          ],
+          const SizedBox(height: 10),
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            _ChildActionsMenu(
+              childId: child.id,
+              isAdmin: isAdmin,
+              isActive: isActive,
+              onDeactivate: onDeactivate,
+              onReactivate: onReactivate,
+              onDeletePermanently: onDeletePermanently,
+            ),
+          ]),
         ]),
       ),
     );
   }
 }
 
-// ── Lifecycle actions popup (admin) ───────────────────────────────────────────
+// ── Single 3-dot action menu (all visible child actions) ────────────────────
+//
+// Per spec, the children list now exposes a single 3-dot menu containing
+// every action:
+//   • Vezi detalii        — always visible
+//   • Editează            — admin only
+//   • Dezactivează / Reactivează copil — admin only
+//   • Șterge definitiv    — admin only
+//
+// The view buttons that used to live next to it (Detalii, Editează) are
+// gone — same functionality, same permissions, only UI placement
+// changed.
 
 class _ChildActionsMenu extends StatelessWidget {
   const _ChildActionsMenu({
+    required this.childId,
+    required this.isAdmin,
     required this.isActive,
     required this.onDeactivate,
     required this.onReactivate,
     required this.onDeletePermanently,
   });
 
+  final String childId;
+  final bool isAdmin;
   final bool isActive;
   final VoidCallback onDeactivate;
   final VoidCallback onReactivate;
@@ -329,6 +336,12 @@ class _ChildActionsMenu extends StatelessWidget {
       offset: const Offset(0, 36),
       onSelected: (value) {
         switch (value) {
+          case 'view':
+            context.go('/children/$childId');
+            break;
+          case 'edit':
+            context.go('/children/$childId/edit');
+            break;
           case 'deactivate':
             onDeactivate();
             break;
@@ -341,17 +354,39 @@ class _ChildActionsMenu extends StatelessWidget {
         }
       },
       itemBuilder: (ctx) => [
-        if (isActive)
+        const PopupMenuItem<String>(
+          value: 'view',
+          child: ListTile(
+            leading: Icon(Icons.visibility_outlined, color: AppColors.info),
+            title: Text('Vezi detalii'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ),
+        if (isAdmin)
+          const PopupMenuItem<String>(
+            value: 'edit',
+            child: ListTile(
+              leading:
+                  Icon(Icons.edit_outlined, color: AppColors.warning),
+              title: Text('Editează'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        if (isAdmin) const PopupMenuDivider(),
+        if (isAdmin && isActive)
           const PopupMenuItem<String>(
             value: 'deactivate',
             child: ListTile(
-              leading: Icon(Icons.archive_outlined, color: AppColors.warning),
-              title: Text('Inactivează copil'),
+              leading:
+                  Icon(Icons.archive_outlined, color: AppColors.warning),
+              title: Text('Dezactivează copil'),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),
           )
-        else
+        else if (isAdmin)
           const PopupMenuItem<String>(
             value: 'reactivate',
             child: ListTile(
@@ -362,17 +397,18 @@ class _ChildActionsMenu extends StatelessWidget {
               dense: true,
             ),
           ),
-        const PopupMenuItem<String>(
-          value: 'delete',
-          child: ListTile(
-            leading:
-                Icon(Icons.delete_forever_rounded, color: AppColors.error),
-            title: Text('Șterge definitiv',
-                style: TextStyle(color: AppColors.error)),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+        if (isAdmin)
+          const PopupMenuItem<String>(
+            value: 'delete',
+            child: ListTile(
+              leading: Icon(Icons.delete_forever_rounded,
+                  color: AppColors.error),
+              title: Text('Șterge definitiv',
+                  style: TextStyle(color: AppColors.error)),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
           ),
-        ),
       ],
       child: Tooltip(
         message: 'Acțiuni',
@@ -464,26 +500,3 @@ class _AttStatusText extends StatelessWidget {
   }
 }
 
-class _ActionBtn extends StatelessWidget {
-  const _ActionBtn({required this.icon, required this.color, required this.tooltip, required this.onTap});
-  final IconData icon;
-  final Color color;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 32, height: 32,
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-          child: Icon(icon, size: 16, color: color),
-        ),
-      ),
-    );
-  }
-}

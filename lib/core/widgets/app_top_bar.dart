@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../features/auth/providers/auth_providers.dart';
 import '../utils/permission_utils.dart';
@@ -47,15 +46,20 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final path = GoRouterState.of(context).uri.path;
     final profileAsync = ref.watch(currentProfileProvider);
     final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
 
+    // Header title is the product name; page-specific titles live in
+    // the page content so there is no duplication.
     return AppBar(
       toolbarHeight: 56,
-      title: Text(
-        titleForPath(path),
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+      title: const Text(
+        'TTH Manager',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 17,
+          letterSpacing: -0.2,
+        ),
       ),
       elevation: 0,
       actions: [

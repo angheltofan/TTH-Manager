@@ -2,9 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// A colored circular avatar showing up to two initials derived from [name].
-/// Background color is driven by [workshopType] when provided, otherwise
-/// deterministically derived from [name] (same name → same color).
+/// A coloured circular avatar showing up to two initials derived from
+/// [name]. **Single source of truth for the child-avatar colour** —
+/// every screen that renders a child must use [ChildAvatar] (not a
+/// custom `CircleAvatar` or hash-coloured circle) so the same child
+/// always looks the same.
+///
+/// Colour rules (per product spec):
+///   • Robotică                           → blue   (`AppColors.info`)
+///   • Lectură / Tales / Benzi desenate   → yellow (`AppColors.warning`)
+///   • Modelare 3D / Imprimare 3D         → green  (`AppColors.success`)
+///   • Programare / AI                    → green  (`AppColors.success`)
+///   • Desen / Pictură / Culoare          → brand blue (`AppColors.purple`)
+///   • Missing or unknown workshop type   → neutral grey (`AppColors.muted`)
+///
+/// The hash-by-name "random" palette that used to be the fallback was
+/// removed — it produced different colours for the same child on
+/// different screens (e.g. Workshop Details vs Children list).
 class ChildAvatar extends StatelessWidget {
   const ChildAvatar({
     super.key,
@@ -15,37 +29,38 @@ class ChildAvatar extends StatelessWidget {
 
   final String name;
   final double size;
-  /// Workshop type string from DB (e.g. 'Robotică', 'Tales', 'Modelare 3D').
+
+  /// Workshop type string from the DB (e.g. 'Robotică', 'Lectură',
+  /// 'Modelare 3D'). When `null` or empty the neutral fallback colour
+  /// is used.
   final String? workshopType;
 
-  static const List<Color> _palette = [
-    AppColors.purple,
-    Color(0xFF3B82F6),
-    AppColors.success,
-    AppColors.warning,
-    AppColors.error,
-    AppColors.teal,
-    Color(0xFFF97316),
-    Color(0xFF8B5CF6),
-  ];
-
-  static Color colorForName(String name) =>
-      _palette[name.hashCode.abs() % _palette.length];
-
-  /// Returns a color based on workshop category:
-  /// - Robotică / Robotics → blue
-  /// - Tales / Lectură / Benzi desenate → yellow/amber
-  /// - Modelare 3D / Imprimare 3D → green
-  /// - anything else → muted gray
-  static Color colorForWorkshopType(String type) {
-    final t = type.toLowerCase();
-    if (t.contains('robot')) { return AppColors.info; }
+  /// Canonical map from `workshop_type` → child-avatar colour. Used
+  /// internally by [ChildAvatar] and exposed `static` so other widgets
+  /// that need the matching tint (e.g. a workshop chip next to the
+  /// avatar) can reuse it without duplicating the rules.
+  static Color colorForWorkshopType(String? type) {
+    final t = (type ?? '').toLowerCase();
+    if (t.isEmpty) return AppColors.muted;
+    if (t.contains('robot')) return AppColors.info;
     if (t.contains('tales') ||
         t.contains('lectur') ||
-        t.contains('benzi')) { return AppColors.warning; }
-    if (t.contains('model') ||
-        t.contains('imprim') ||
-        t.contains('3d')) { return AppColors.success; }
+        t.contains('benzi')) {
+      return AppColors.warning;
+    }
+    if (t.contains('model') || t.contains('imprim') || t.contains('3d')) {
+      return AppColors.success;
+    }
+    if (t.contains('program') ||
+        t.contains('ai') ||
+        t.contains('inteligen')) {
+      return AppColors.success;
+    }
+    if (t.contains('desen') ||
+        t.contains('pictur') ||
+        t.contains('culoare')) {
+      return AppColors.purple;
+    }
     return AppColors.muted;
   }
 
@@ -53,9 +68,7 @@ class ChildAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
     final initials = parts.take(2).map((p) => p[0].toUpperCase()).join();
-    final color = (workshopType != null && workshopType!.isNotEmpty)
-        ? colorForWorkshopType(workshopType!)
-        : colorForName(name);
+    final color = colorForWorkshopType(workshopType);
 
     return Container(
       width: size,
