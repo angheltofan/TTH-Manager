@@ -9,7 +9,7 @@ import 'notification_url_resolver.dart';
 import 'widgets/notifications_empty_state.dart';
 import 'widgets/notifications_list.dart';
 
-// â”€â”€ Filter enum â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Filter enum ───────────────────────────────────────────────────────────────
 
 enum _Filter { all, unread, read }
 
@@ -21,7 +21,7 @@ extension _FilterLabel on _Filter {
       };
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key});
@@ -84,7 +84,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Page header ───────────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(8, 24, 16, 0),
                     child: Row(
@@ -99,7 +99,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'NotificÄƒri',
+                          'Notificări',
                           style: theme.textTheme.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
@@ -114,7 +114,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                                   icon: const Icon(Icons.done_all_rounded,
                                       size: 16),
                                   label: const Text(
-                                    'MarcheazÄƒ toate ca citite',
+                                    'Marchează toate ca citite',
                                     style: TextStyle(fontSize: 12),
                                   ),
                                 );
@@ -125,7 +125,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                     ),
                   ),
 
-                  // â”€â”€ Filter chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Filter chips ──────────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
                     child: Wrap(
@@ -146,7 +146,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
 
                   const Divider(height: 1),
 
-                  // â”€â”€ Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Content ───────────────────────────────────────────────
                   Expanded(
                     child: async.when(
                       loading: () => const Center(
