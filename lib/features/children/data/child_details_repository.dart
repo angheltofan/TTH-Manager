@@ -44,9 +44,18 @@ class ChildDetailsRepository {
   // Returns all rows where payment_cycle_id IS NULL and is_archived = false.
   // This bypasses the child_current_status_rows view which may apply a date
   // filter and miss older sessions still in the current open cycle.
+  //
+  // For free participants the server never creates payment_cycles rows (a
+  // BEFORE INSERT trigger silently skips them), so EVERY unarchived
+  // attendance row stays with `payment_cycle_id IS NULL` forever. Walking
+  // through this set chronologically and grouping into blocks of four
+  // presents gives the same visual "X / 4 → reset to 0 / 4" behavior as
+  // the paid workflow without ever generating a financial obligation.
 
   Future<List<ChildCurrentStatusRow>> fetchChildCurrentStatusRows(
-      String childId) async {
+      String childId, {
+    bool isFreeParticipant = false,
+  }) async {
     final data = await _client
         .from('attendance')
         .select(
@@ -83,7 +92,32 @@ class ChildDetailsRepository {
       return (a.startTime ?? '').compareTo(b.startTime ?? '');
     });
 
-    return rows;
+    if (!isFreeParticipant) return rows;
+    return _windowToCurrentFourPresentBlock(rows);
+  }
+
+  /// Returns the trailing slice of [rows] that comes AFTER the most recent
+  /// 4th-present row. Walks chronologically: every time the running count
+  /// of `present` rows hits four, the in-progress block is discarded and
+  /// the counter resets. Anything past the last discard is the "current
+  /// open block" — exactly what the paid view shows once
+  /// `payment_cycle_id` resets to NULL.
+  List<ChildCurrentStatusRow> _windowToCurrentFourPresentBlock(
+      List<ChildCurrentStatusRow> rows) {
+    var presentCount = 0;
+    var blockStart = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].attendanceStatus == 'present') {
+        presentCount += 1;
+        if (presentCount == 4) {
+          // The 4th present closes the block; the next row begins a fresh one.
+          blockStart = i + 1;
+          presentCount = 0;
+        }
+      }
+    }
+    if (blockStart >= rows.length) return const [];
+    return rows.sublist(blockStart);
   }
 
   // ── Payment history rows from child_payment_status_rows view ──────────────

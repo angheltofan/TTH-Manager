@@ -92,12 +92,27 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
                 AssignedWorkshopsCard(childId: widget.childId),
                 SizedBox(height: context.sectionGap),
 
-                // 3. Status actual
+                // 3. Status actual — identical card for both paths.
+                //
+                // For paid children the row source is `attendance` rows
+                // with `payment_cycle_id IS NULL`, which the server
+                // resets to NULL by linking them when a new cycle is
+                // created. For free children no cycle is ever created
+                // (DB trigger skips the INSERT), so the provider
+                // windows the same query to the trailing "current
+                // block" past the last 4th-present row — giving the
+                // same X / 4 → reset to 0 / 4 behavior without any
+                // financial side effect.
                 CurrentStatusCard(childId: widget.childId),
-                SizedBox(height: context.sectionGap),
 
-                // 4. Status plată
-                PaymentStatusCard(childId: widget.childId),
+                // 4. Status plată — paid participants only. Free
+                // participants never have payment cycles, so the whole
+                // payment card (and the cicluri / istoric / confirma
+                // plata controls inside it) are skipped.
+                if (!child.isFreeParticipant) ...[
+                  SizedBox(height: context.sectionGap),
+                  PaymentStatusCard(childId: widget.childId),
+                ],
 
                 // 5. Părinți asociați — admin-only in P4. Trainer read-only
                 // access pending an RLS extension on child_parents/profiles.

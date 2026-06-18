@@ -36,13 +36,27 @@ final childCurrentStatusProvider =
 });
 
 // ── Current cycle attendance rows ─────────────────────────────────────────────
+//
+// For paid children: behaviour unchanged — returns every unarchived
+// attendance row whose `payment_cycle_id IS NULL`.
+//
+// For free children: the same fetch runs, but its result is then windowed
+// client-side to the trailing "current block" (everything after the most
+// recent 4th-present row). The DB trigger that auto-creates payment_cycles
+// is blocked for free children, so without this windowing the row list
+// would grow forever instead of resetting to 0/4. The dispatch reads the
+// child's payment_type via `childByIdProvider`; while that future is
+// loading we fall back to `'paid'` semantics — safe because the fallback
+// is a strict superset of the free output.
 
 final childCurrentStatusRowsProvider =
     FutureProvider.autoDispose.family<List<ChildCurrentStatusRow>, String>(
-        (ref, childId) {
+        (ref, childId) async {
+  final child = await ref.watch(childByIdProvider(childId).future);
+  final isFree = child?.isFreeParticipant ?? false;
   return ref
       .watch(childDetailsRepositoryProvider)
-      .fetchChildCurrentStatusRows(childId);
+      .fetchChildCurrentStatusRows(childId, isFreeParticipant: isFree);
 });
 
 // ── Payment status rows ───────────────────────────────────────────────────────
