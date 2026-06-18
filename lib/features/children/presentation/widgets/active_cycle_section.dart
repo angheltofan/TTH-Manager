@@ -126,9 +126,14 @@ class _ActiveCycleSectionState extends ConsumerState<ActiveCycleSection> {
 
     final result = await showPaymentMethodDialog(
       context,
-      onConfirm: (method) async {
+      onConfirm: (method, observation) async {
         final methodLower = method.toLowerCase(); // 'pos' or 'op'
-        final notes = 'Plată confirmată prin $method.';
+        // Per spec: only the admin's observation goes into the notes
+        // column. Empty → null (the repository converts empty string
+        // to null / omit). The legacy "Plată confirmată prin POS."
+        // baseline is dropped because `payment_method` is now always
+        // set, so notes is no longer needed as a method fallback.
+        final notes = observation ?? '';
         if (isDue) {
           await repo.confirmPayment(
             isStaff: isStaff,

@@ -156,13 +156,13 @@ class PaymentStatusCard extends ConsumerWidget {
 
     final result = await showPaymentMethodDialog(
       context,
-      onConfirm: (method) async {
+      onConfirm: (method, observation) async {
         await ref.read(childDetailsRepositoryProvider).confirmPayment(
           isStaff: isStaff,
           cycleId: cycleId,
           userId: authUser.id,
           paymentMethod: method.toLowerCase(), // 'pos' or 'op'
-          notes: 'Plată confirmată prin $method.',
+          notes: observation ?? '',
         );
       },
     );
