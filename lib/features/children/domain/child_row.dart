@@ -13,6 +13,7 @@ class ChildRow {
     this.parentPhone,
     this.notes,
     this.isActive,
+    this.paymentType = 'paid',
     required this.workshops,
     this.lastAttStatus,
     this.lastAttDate,
@@ -27,11 +28,16 @@ class ChildRow {
   final String? parentPhone;
   final String? notes;
   final bool? isActive;
+
+  /// 'paid' or 'free'. Defaults to 'paid' when the column is unavailable.
+  final String paymentType;
   final List<ChildWorkshopSummary> workshops;
 
   /// Most-recent recorded attendance status: 'present', 'absent', 'motivated'
   final String? lastAttStatus;
   final DateTime? lastAttDate;
+
+  bool get isFreeParticipant => paymentType == 'free';
 
   String get fullName => '$firstName $lastName';
 
@@ -67,6 +73,7 @@ class ChildRow {
       parentPhone: map['parent_phone'] as String?,
       notes: map['notes'] as String?,
       isActive: map['is_active'] as bool?,
+      paymentType: (map['payment_type'] as String?) ?? 'paid',
       workshops: workshops,
       lastAttStatus: lastAttStatus,
       lastAttDate: lastAttDate,

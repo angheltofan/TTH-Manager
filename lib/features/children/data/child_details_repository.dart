@@ -22,7 +22,7 @@ class ChildDetailsRepository {
         .from('children')
         .select(
             'id, first_name, last_name, birth_date, '
-            'parent_name, parent_phone, notes, is_active')
+            'parent_name, parent_phone, notes, is_active, payment_type')
         .eq('id', childId)
         .maybeSingle();
     return data != null ? ChildModel.fromMap(data) : null;

@@ -54,6 +54,9 @@ class ChildInfoCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     _StatusBadge(isActive: isActive),
+                    const SizedBox(width: 6),
+                    _PaymentTypeBadge(
+                        isFree: child.paymentType == 'free'),
                     if (isAdmin) ...[
                       const SizedBox(width: 4),
                       IconButton(
@@ -144,6 +147,42 @@ class _StatusBadge extends StatelessWidget {
           ),
         ),
       );
+}
+
+// ── Payment-type badge ────────────────────────────────────────────────────────
+
+class _PaymentTypeBadge extends StatelessWidget {
+  const _PaymentTypeBadge({required this.isFree});
+  final bool isFree;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isFree ? AppColors.warning : AppColors.info;
+    final icon = isFree ? Icons.school_outlined : Icons.credit_card_outlined;
+    final label = isFree ? 'Participare gratuită' : 'Plătitor';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Info chip: icon + label + value ──────────────────────────────────────────

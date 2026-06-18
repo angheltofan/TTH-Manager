@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../reports/presentation/monthly_report_dialog.dart';
 import 'widgets/settings_widgets.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -15,6 +16,7 @@ class SettingsPage extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final profileAsync = ref.watch(currentProfileProvider);
     final theme = Theme.of(context);
+    final isStaff = profileAsync.valueOrNull?.isStaff ?? false;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -111,6 +113,32 @@ class SettingsPage extends ConsumerWidget {
               ),
             ],
           ),
+
+          if (isStaff) ...[
+            const SizedBox(height: 16),
+
+            // ── Rapoarte și exporturi (admin + trainer) ──
+            //
+            // Hub for the monthly management PDF and any future export.
+            // A single SettingsGroup keeps the navigation flat: future
+            // reports are added as additional SettingsTile entries
+            // here, no new routes needed.
+            SettingsGroup(
+              title: 'Rapoarte și exporturi',
+              icon: Icons.assessment_outlined,
+              iconColor: AppColors.info,
+              children: [
+                SettingsTile(
+                  icon: Icons.picture_as_pdf_outlined,
+                  title: 'Raport managerial lunar',
+                  subtitle:
+                      'Rezumat executiv, prezență, plăți, alerte, recomandări',
+                  onTap: () => showMonthlyReportDialog(context, ref),
+                  showChevron: true,
+                ),
+              ],
+            ),
+          ],
 
           const SizedBox(height: 16),
 

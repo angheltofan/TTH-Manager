@@ -9,19 +9,29 @@ class DashboardRepository {
   final SupabaseClient _client;
 
   Future<DashboardStats?> getStats() async {
-    // Run both queries in parallel to reduce latency.
+    // Run both queries in parallel to reduce latency. The pending-payments
+    // count is recomputed here (rather than read from `dashboard_stats`) so
+    // that we can exclude cycles belonging to children with
+    // payment_type='free' — those participate informationally only.
     final results = await Future.wait<dynamic>([
       _client.from('dashboard_stats').select().maybeSingle(),
       _client
           .from('payment_cycles')
-          .select('id')
+          .select('id, children!child_id(payment_type)')
           .inFilter('status', ['due', 'overdue']),
     ]);
 
     final statsData = results[0] as Map<String, dynamic>?;
     if (statsData == null) return null;
 
-    final pendingCount = (results[1] as List).length;
+    final pendingCount = (results[1] as List)
+        .cast<Map<String, dynamic>>()
+        .where((row) {
+          final child = row['children'];
+          if (child is! Map<String, dynamic>) return true; // legacy/orphan
+          return (child['payment_type'] as String? ?? 'paid') != 'free';
+        })
+        .length;
     return DashboardStats.fromMap(statsData)
         .copyWith(pendingPayments: pendingCount);
   }

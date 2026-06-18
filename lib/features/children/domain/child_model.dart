@@ -10,6 +10,7 @@ class ChildModel {
     this.parentPhone,
     this.notes,
     this.isActive,
+    this.paymentType = 'paid',
   });
 
   final String id;
@@ -20,6 +21,13 @@ class ChildModel {
   final String? parentPhone;
   final String? notes;
   final bool? isActive;
+
+  /// 'paid' (regular paying participant) or 'free' (sponsored / family
+  /// friend / scholarship). Defaults to 'paid' for safety when the DB
+  /// column is unexpectedly absent.
+  final String paymentType;
+
+  bool get isFreeParticipant => paymentType == 'free';
 
   String get fullName => '$firstName $lastName';
 
@@ -46,5 +54,6 @@ class ChildModel {
         parentPhone: map['parent_phone'] as String?,
         notes: map['notes'] as String?,
         isActive: map['is_active'] as bool?,
+        paymentType: (map['payment_type'] as String?) ?? 'paid',
       );
 }

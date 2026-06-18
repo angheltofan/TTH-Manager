@@ -15,6 +15,7 @@ class Child {
     this.parentPhone,
     this.notes,
     this.isActive,
+    this.paymentType = 'paid',
   });
 
   final String id;
@@ -26,6 +27,7 @@ class Child {
   final String? parentPhone;
   final String? notes;
   final bool? isActive;
+  final String paymentType;
 
   factory Child.fromMap(Map<String, dynamic> m) => Child(
         id: m['id'] as String,
@@ -39,6 +41,7 @@ class Child {
         parentPhone: m['parent_phone'] as String?,
         notes: m['notes'] as String?,
         isActive: m['is_active'] as bool?,
+        paymentType: (m['payment_type'] as String?) ?? 'paid',
       );
 }
 

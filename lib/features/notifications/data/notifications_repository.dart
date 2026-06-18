@@ -22,19 +22,22 @@ class NotificationsRepository {
   }
 
   // ── All notifications (newest first) ─────────────────────────────────────
+  //
+  // Defense-in-depth: any 'payment'-type notification whose related child is
+  // marked as `payment_type = 'free'` is filtered out client-side, in
+  // addition to the BEFORE INSERT trigger that blocks such rows from being
+  // written. The trigger handles new rows; this filter handles any legacy
+  // rows that pre-date the trigger.
 
   Future<List<AppNotification>> fetchNotifications(String userId) async {
     final data = await _client
         .from('notifications')
-        .select()
+        .select('*, children:related_child_id(payment_type)')
         .eq('recipient_id', userId)
         .or(_notExpiredFilter())
         .order('created_at', ascending: false)
         .limit(100);
-    return (data as List)
-        .cast<Map<String, dynamic>>()
-        .map(AppNotification.fromMap)
-        .toList();
+    return _mapFiltered(data);
   }
 
   // ── Recent notifications for the bell dropdown ───────────────────────────
@@ -56,15 +59,27 @@ class NotificationsRepository {
 
     final data = await _client
         .from('notifications')
-        .select()
+        .select('*, children:related_child_id(payment_type)')
         .eq('recipient_id', userId)
         .or('is_read.eq.false,created_at.gte.$todayStr')
         .or(_notExpiredFilter())
         .order('created_at', ascending: false)
         .limit(20);
 
+    return _mapFiltered(data);
+  }
+
+  /// Casts the PostgREST response, drops `payment`-type notifications whose
+  /// related child is a free participant, and maps to [AppNotification].
+  List<AppNotification> _mapFiltered(dynamic data) {
     return (data as List)
         .cast<Map<String, dynamic>>()
+        .where((row) {
+          if (row['type'] != 'payment') return true;
+          final child = row['children'];
+          if (child is! Map<String, dynamic>) return true;
+          return (child['payment_type'] as String? ?? 'paid') != 'free';
+        })
         .map(AppNotification.fromMap)
         .toList();
   }
@@ -77,11 +92,19 @@ class NotificationsRepository {
   Future<int> fetchUnreadCount(String userId) async {
     final data = await _client
         .from('notifications')
-        .select('id')
+        .select('id, type, children:related_child_id(payment_type)')
         .eq('recipient_id', userId)
         .eq('is_read', false)
         .or(_notExpiredFilter());
-    return (data as List).length;
+    return (data as List)
+        .cast<Map<String, dynamic>>()
+        .where((row) {
+          if (row['type'] != 'payment') return true;
+          final child = row['children'];
+          if (child is! Map<String, dynamic>) return true;
+          return (child['payment_type'] as String? ?? 'paid') != 'free';
+        })
+        .length;
   }
 
   // ── Mark as read ──────────────────────────────────────────────────────────

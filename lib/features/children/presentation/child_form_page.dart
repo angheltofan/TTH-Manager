@@ -33,6 +33,7 @@ class _ChildFormPageState extends ConsumerState<ChildFormPage> {
 
   DateTime? _birthDate;
   bool _isActive = true;
+  String _paymentType = 'paid';
   bool _saving = false;
   bool _initialized = false;
   String? _saveError;
@@ -87,6 +88,7 @@ class _ChildFormPageState extends ConsumerState<ChildFormPage> {
     _parentPhoneCtrl.text = child.parentPhone ?? '';
     _notesCtrl.text = child.notes ?? '';
     _isActive = child.isActive ?? true;
+    _paymentType = child.paymentType;
   }
 
   Future<void> _pickDate() async {
@@ -124,6 +126,7 @@ class _ChildFormPageState extends ConsumerState<ChildFormPage> {
       if (_notesCtrl.text.trim().isNotEmpty)
         'notes': _notesCtrl.text.trim(),
       'is_active': _isActive,
+      'payment_type': _paymentType,
     };
     try {
       final repo = ref.read(childrenRepositoryProvider);
@@ -219,6 +222,9 @@ class _ChildFormPageState extends ConsumerState<ChildFormPage> {
                       notesCtrl: _notesCtrl,
                       isActive: _isActive,
                       onActiveChanged: (v) => setState(() => _isActive = v),
+                      paymentType: _paymentType,
+                      onPaymentTypeChanged: (v) =>
+                          setState(() => _paymentType = v),
                       inputDeco: inputDeco,
                     ),
                   ),

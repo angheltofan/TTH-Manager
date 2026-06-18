@@ -19,15 +19,21 @@ class PaymentsDueRepository {
         .from('payment_cycles')
         .select(
           'id, child_id, status, period_start, period_end, sessions_count, '
-          'children!child_id(first_name, last_name)',
+          'children!child_id(first_name, last_name, payment_type)',
         )
         .inFilter('status', ['due', 'overdue'])
         .order('period_start', ascending: false);
 
-    // Discard orphaned cycles (child was deleted → children join is null).
+    // Discard orphaned cycles (child was deleted → children join is null) and
+    // discard cycles belonging to free participants — they never appear on
+    // the payments-due page even if a legacy trigger created a 'due' row.
     final all = (data as List)
         .cast<Map<String, dynamic>>()
-        .where((e) => e['children'] != null)
+        .where((e) {
+          final child = e['children'];
+          if (child is! Map<String, dynamic>) return false;
+          return (child['payment_type'] as String? ?? 'paid') != 'free';
+        })
         .toList();
 
     if (all.isEmpty) return [];
