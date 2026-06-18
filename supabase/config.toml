@@ -13,6 +13,12 @@ verify_jwt = true
 # token + sha256(pepper) + per-token attempt counter + 24h TTL.
 verify_jwt = false
 
+[functions.tth_assistant]
+# Staff-only chat assistant. Platform-level JWT verification PLUS an
+# explicit `getUser()` check and a profile-role gate (admin|trainer)
+# inside the function. Parent users get 403.
+verify_jwt = true
+
 [functions.generate_parent_setup_invite]
 # Admin-only fallback for manual parent invitations (used when Resend
 # is unavailable). Verifies JWT at the platform level AND re-checks

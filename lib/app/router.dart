@@ -13,6 +13,7 @@ import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/parent_setup_page.dart';
 import '../features/auth/presentation/set_password_page.dart';
 import '../features/auth/providers/auth_providers.dart';
+import '../features/assistant/presentation/assistant_page.dart';
 import '../features/children/presentation/child_details_page.dart';
 import '../features/children/presentation/child_form_page.dart';
 import '../features/children/presentation/children_page.dart';
@@ -239,6 +240,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => ChildFormPage(
               childId: state.pathParameters['id'],
             ),
+          ),
+          // TTH Assistant (staff-only, parent-blocked by the redirect
+          // guard above + a defensive role check inside [AssistantPage]).
+          GoRoute(
+            path: '/assistant',
+            builder: (context, state) => const AssistantPage(),
           ),
           GoRoute(
             path: '/trainers',

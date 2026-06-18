@@ -18,7 +18,7 @@ class AppShell extends ConsumerWidget {
   static const _navItems = [
     _NavItem(icon: Icons.space_dashboard_outlined, label: 'Dashboard', path: '/dashboard'),
     _NavItem(icon: Icons.groups_outlined, label: 'Copii', path: '/children'),
-    _NavItem(icon: Icons.badge_outlined, label: 'Traineri', path: '/trainers'),
+    _NavItem(icon: Icons.auto_awesome_outlined, label: 'Asistent', path: '/assistant'),
     _NavItem(icon: Icons.tune_outlined, label: 'Setări', path: '/settings'),
   ];
 
