@@ -10,6 +10,7 @@ class StatCard extends StatelessWidget {
     this.icon,
     this.color,
     this.subLabel,
+    this.extraLine,
     this.trend,
     this.onTap,
     this.dense = false,
@@ -22,6 +23,13 @@ class StatCard extends StatelessWidget {
   final String? subLabel;
   final String? trend;
   final VoidCallback? onTap;
+
+  /// Optional third line rendered below [subLabel] in a faded outline
+  /// colour. Used by the parent "Următorul atelier" KPI to surface the
+  /// workshop name as auxiliary context without truncating the title or
+  /// time. When provided the card height grows by ~14 px to make room.
+  /// Defaults to null — staff cards are unaffected.
+  final String? extraLine;
 
   /// When true, renders the value with a slightly smaller font so
   /// longer string values (e.g. "Luni, 2 iun." on the parent dashboard)
@@ -53,7 +61,13 @@ class StatCard extends StatelessWidget {
             compact ? 20 : (dense ? 21 : 24);
         final double labelFs = compact ? 11 : 13;
         final double subFs = compact ? 10 : 11;
-        final double cardHeight = compact ? 110 : 96;
+        final double extraFs = compact ? 9.5 : 10;
+        final hasExtraLine = extraLine != null && extraLine!.trim().isNotEmpty;
+        // Grow the card by one small-line worth of height when the
+        // optional 3rd line is present. Keeps the existing staff layout
+        // pixel-identical (extraLine null → unchanged dimensions).
+        final double cardHeight = (compact ? 110 : 96) +
+            (hasExtraLine ? (compact ? 14 : 16) : 0);
         const FontWeight valueFw = FontWeight.w700;
 
         return SizedBox(
@@ -123,6 +137,20 @@ class StatCard extends StatelessWidget {
                               color: cardColor.withValues(alpha: 0.85),
                               fontSize: subFs,
                               fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        if (hasExtraLine) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            extraLine!,
+                            style: TextStyle(
+                              color: theme.colorScheme.outline,
+                              fontSize: extraFs,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.1,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

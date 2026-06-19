@@ -116,22 +116,35 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (isSetPasswordRoute) return null;
       if (isParentSetupRoute) return null;
 
-      // Role may still be loading — fall back to staff behavior (the
-      // existing default) until the profile resolves; the listener above
-      // will re-trigger this redirect once the role is known.
       final profile = ref.read(currentProfileProvider).valueOrNull;
-      final isParent = profile?.isParent ?? false;
       final isParentRoute =
           path == '/parent' || path.startsWith('/parent/');
+
+      // Profile not yet resolved → we don't know the role.
+      //
+      // Critical: do NOT default to the staff shell here. Doing so
+      // briefly mounted [AppShell] for parent users after they signed
+      // in (the "Admin/Trainer UI flash" before the Parent Portal
+      // takes over). Instead, park the user on the login page until
+      // [currentProfileProvider] resolves — the listener above re-runs
+      // this redirect as soon as the role is known. The login page
+      // shows its own loading spinner during that window.
+      //
+      // Already-loaded routes (a deep link straight into /parent or
+      // /dashboard after a session was restored at cold start) are
+      // also bounced back to /login while the role loads, so neither
+      // shell can render with the wrong role. The cold-start case is
+      // additionally covered by `startupBootstrapProvider` which keeps
+      // the branded splash visible until the profile is ready.
+      if (profile == null) {
+        return isLoginRoute ? null : '/login';
+      }
+
+      final isParent = profile.isParent;
 
       if (isLoginRoute) {
         // Post-login destination depends on role.
         return isParent ? '/parent' : '/dashboard';
-      }
-
-      if (profile == null) {
-        // Role unknown yet — allow current navigation; re-evaluated on load.
-        return null;
       }
 
       if (isParent && !isParentRoute) {

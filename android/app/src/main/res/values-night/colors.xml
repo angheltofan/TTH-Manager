@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand-aligned launch / splash background — dark variant.
+         Matches AppColors.bgDark (Flutter dark theme scaffoldBackgroundColor)
+         so the Android 12+ system splash, the pre-12 launch drawable, and the
+         Flutter splash render on the same dark navy. -->
+    <color name="launch_background">#070B1F</color>
+</resources>

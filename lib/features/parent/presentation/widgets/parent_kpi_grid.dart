@@ -6,7 +6,6 @@ import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/responsive_grid.dart';
 import '../../../../core/widgets/stat_card.dart';
 import '../../domain/parent_dashboard.dart';
-import '../../utils/parent_date_labels.dart';
 
 /// Four-up KPI grid on the parent dashboard.
 ///
@@ -89,40 +88,40 @@ class ParentKpiGrid extends ConsumerWidget {
         if (next == null) {
           return const StatCard(
             label: 'Următorul atelier',
-            value: 'Niciun atelier',
+            value: '—',
             icon: Icons.event_note_outlined,
             color: AppColors.info,
-            subLabel: 'Nu există sesiuni programate',
+            subLabel: 'Niciun atelier programat',
             dense: true,
           );
         }
 
+        // Restructured layout:
+        //   value      → short weekday name ("Luni")          ← always 1 word
+        //   subLabel   → time range ("17:30 – 19:00")          ← always short
+        //   extraLine  → workshop title (if known, optional)   ← truncates
+        // This keeps the headline + time fully visible on iPhone width
+        // and pushes any truncation to the third line where it does not
+        // hide essential information.
         final date = next.workshopDate;
         final timePart = _timeRange(next.startTime, next.endTime);
         final names = next.childNames;
         final hasMultipleChildren = children.length > 1;
 
         final value = date != null
-            ? formatRoFullDay(date)
+            ? _shortRoWeekday(date)
             : (next.dayOfWeek?.isNotEmpty == true
                 ? next.dayOfWeek!
                 : next.displayLabel);
 
-        final tail = hasMultipleChildren && names.isNotEmpty
+        final subLabel = timePart.isNotEmpty ? timePart : 'Programat';
+
+        // Third line: workshop title primarily, otherwise — when more
+        // than one child is linked — the attending child names.
+        final title = next.displayLabel.trim();
+        final extraLine = (hasMultipleChildren && names.isNotEmpty)
             ? names.join(', ')
-            : next.displayLabel;
-        final parts = <String>[
-          if (timePart.isNotEmpty) timePart,
-          if (tail.isNotEmpty) tail,
-        ];
-        final addCount = next.additionalUpcomingCount;
-        var subLabel = parts.join(' · ');
-        if (addCount > 0) {
-          final suffix = '+ încă $addCount '
-              '${addCount == 1 ? "atelier" : "ateliere"}';
-          subLabel = subLabel.isEmpty ? suffix : '$subLabel · $suffix';
-        }
-        if (subLabel.isEmpty) subLabel = 'Programat';
+            : (title.isNotEmpty ? title : null);
 
         return StatCard(
           label: 'Următorul atelier',
@@ -130,11 +129,20 @@ class ParentKpiGrid extends ConsumerWidget {
           icon: Icons.event_note_outlined,
           color: AppColors.info,
           subLabel: subLabel,
+          extraLine: extraLine,
           dense: true,
         );
       },
     );
   }
+
+  /// Short weekday name in Romanian ("Luni", "Marți", …). Pulled inline
+  /// so the parent grid doesn't need a new exported util.
+  static const _kRoWeekdayFull = <String>[
+    'Luni', 'Marți', 'Miercuri', 'Joi', 'Vineri', 'Sâmbătă', 'Duminică',
+  ];
+  static String _shortRoWeekday(DateTime date) =>
+      _kRoWeekdayFull[(date.weekday - 1).clamp(0, 6)];
 
   // ── 3. Rată prezență (last 30 days, all linked children) ──────────────────
 
@@ -169,8 +177,10 @@ class ParentKpiGrid extends ConsumerWidget {
         }
         final pct = summary.ratePercent ?? 0;
         final missed = summary.missedCount;
+        // Shorter Romanian: "5 prez. · 1 abs." fits in a 130-px compact
+        // card without ellipsis even on the narrowest iPhone width.
         final subLabel =
-            '${summary.presentCount} prezențe · $missed absențe';
+            '${summary.presentCount} prez. · $missed abs.';
         return StatCard(
           label: 'Rată prezență',
           value: '${pct.toStringAsFixed(0)}%',
@@ -237,7 +247,7 @@ class ParentKpiGrid extends ConsumerWidget {
               value: 'În regulă',
               icon: Icons.payments_outlined,
               color: AppColors.success,
-              subLabel: 'Nicio plată restantă',
+              subLabel: 'Fără restanțe',
               dense: true,
             );
         }
@@ -252,7 +262,7 @@ class ParentKpiGrid extends ConsumerWidget {
     final e = end != null ? formatTimeString(end) : '';
     if (s.isEmpty) return '';
     if (e.isEmpty) return s;
-    return '$s - $e';
+    return '$s – $e';
   }
 
   static String _namesOr(List<String> names, {required String fallback}) {

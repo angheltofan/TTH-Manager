@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Adaptive launcher icon background (used by the home-screen icon
+         mask, not by the splash). -->
     <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- Brand-aligned launch / splash background.
+         Light mode → matches AppColors.bgLight (Flutter scaffoldBackgroundColor).
+         Dark  mode → see values-night/colors.xml (#070B1F). -->
+    <color name="launch_background">#F5F8FC</color>
 </resources>

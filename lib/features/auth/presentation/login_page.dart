@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../providers/auth_providers.dart';
 
@@ -32,15 +31,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             email: _emailController.text.trim(),
             password: _passwordController.text,
           );
-      if (mounted) context.go('/dashboard');
+      // Intentionally do NOT call `context.go('/dashboard')` here.
+      //
+      // The router's redirect guard reacts to the Supabase auth-state
+      // event and to `currentProfileProvider` resolving — it sends the
+      // user to `/parent` or `/dashboard` based on the actual role.
+      // Hard-coding `/dashboard` here previously caused parent users
+      // to briefly see the staff shell while the profile loaded.
+      //
+      // We keep `_loading = true` on success so the spinner stays
+      // visible until the redirect swaps this page off-screen.
     } catch (e) {
       if (mounted) {
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Autentificare eșuată: $e')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 

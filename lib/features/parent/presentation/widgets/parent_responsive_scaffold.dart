@@ -49,11 +49,28 @@ class ParentResponsiveScaffold extends ConsumerWidget {
 
     final theme = Theme.of(context);
     final location = GoRouterState.of(context).uri.path;
-    // Same recipe as `AppShell`: exact match OR `${path}/` prefix.
-    final bottomNavIndex = _navItems.indexWhere(
-      (item) =>
-          location == item.path || location.startsWith('${item.path}/'),
-    );
+    // Longest-match wins.
+    //
+    // `indexWhere` returns the FIRST hit, but `/parent` is the first
+    // item and a prefix of every other parent route — so every URL
+    // matched index 0 (Dashboard) before this rewrite. Scoring every
+    // candidate by path length and keeping the longest match means:
+    //   • `/parent`           → only `/parent` (exact)       → Dashboard
+    //   • `/parent/info`      → both, `/parent/info` wins    → Info
+    //   • `/parent/settings`  → both, `/parent/settings` wins → Setări
+    //   • `/parent/notifications` → only `/parent` prefix → Dashboard
+    //     (intentional — notifications has its own surface and is
+    //     intentionally NOT a primary bottom-nav destination).
+    int bottomNavIndex = -1;
+    int bestMatchLen = -1;
+    for (int i = 0; i < _navItems.length; i++) {
+      final p = _navItems[i].path;
+      final matches = location == p || location.startsWith('$p/');
+      if (matches && p.length > bestMatchLen) {
+        bottomNavIndex = i;
+        bestMatchLen = p.length;
+      }
+    }
 
     // The persistent shell paints `child` directly into its `body:`
     // slot, which means the framework would normally try to reuse the

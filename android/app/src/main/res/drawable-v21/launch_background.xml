@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!--
+  Android 5.0 – 11 launch window background. Same brand background +
+  centred logo as the base drawable. Kept as a separate file so newer-
+  density-only attributes can diverge in the future if needed.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+    <item android:drawable="@color/launch_background" />
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@drawable/ic_launcher_foreground" />
+    </item>
 </layer-list>
