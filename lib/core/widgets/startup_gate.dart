@@ -1,20 +1,22 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/startup_bootstrap_provider.dart';
 import '../theme/app_theme.dart';
-import '../../features/auth/providers/auth_providers.dart';
 
-/// Branded full-screen startup splash shown ONLY during the very first app
-/// launch, until the bootstrap signals required for clean first paint have
-/// resolved:
-///   • Supabase auth state has emitted at least once (logged-in vs not).
-///   • If logged in, the [currentProfileProvider] has resolved (role known
-///     so the router redirect can finalise the destination).
-///   • A minimum visible time has elapsed to prevent a flash on fast paths.
+/// Branded full-screen startup splash shown during the very first app
+/// launch until the destination route's data is loaded.
 ///
-/// Once "ready" is reached the flag becomes sticky — subsequent rebuilds
+/// Readiness is delegated to [startupBootstrapProvider] — a single
+/// `FutureProvider` that walks the bootstrap sequence (auth → profile →
+/// role-specific first-screen data). When that provider has resolved
+/// (with data or an error), the gate cross-fades from the splash to the
+/// routed app.
+///
+/// No fixed-duration timer is involved. The splash is visible exactly
+/// as long as the data fetch takes — never longer, never shorter.
+///
+/// Once "ready" is reached the flag becomes sticky: subsequent rebuilds
 /// always render the routed app and the splash never reappears on
 /// navigation, tab switches, or after-startup auth-state rotations.
 class StartupGate extends ConsumerStatefulWidget {
@@ -22,42 +24,22 @@ class StartupGate extends ConsumerStatefulWidget {
 
   final Widget child;
 
-  /// Minimum visible duration of the splash. Keeps the brand visible long
-  /// enough to avoid a single-frame flash when the session is already
-  /// cached and the dashboard data is hot.
-  static const Duration minVisible = Duration(milliseconds: 700);
-
   @override
   ConsumerState<StartupGate> createState() => _StartupGateState();
 }
 
 class _StartupGateState extends ConsumerState<StartupGate> {
-  bool _minTimeElapsed = false;
   bool _appReady = false;
-
-  @override
-  void initState() {
-    super.initState();
-    Timer(StartupGate.minVisible, () {
-      if (mounted) setState(() => _minTimeElapsed = true);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     if (!_appReady) {
-      final authState = ref.watch(authStateProvider);
-      final authReady = authState.hasValue || authState.hasError;
-
-      final user = ref.watch(currentUserProvider);
-
-      bool profileReady = true;
-      if (user != null) {
-        final profileAsync = ref.watch(currentProfileProvider);
-        profileReady = profileAsync.hasValue || profileAsync.hasError;
-      }
-
-      if (authReady && profileReady && _minTimeElapsed) {
+      final bootstrap = ref.watch(startupBootstrapProvider);
+      // Treat both `hasValue` and `hasError` as "ready" — if bootstrap
+      // surfaced an error we still want to render the destination so
+      // the user sees the actual inline error UI instead of being
+      // stranded on the splash.
+      if (bootstrap.hasValue || bootstrap.hasError) {
         _appReady = true;
       }
     }
