@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_controller.dart';
+import '../core/widgets/startup_gate.dart';
 import 'router.dart';
 
 class App extends ConsumerWidget {
@@ -20,6 +21,9 @@ class App extends ConsumerWidget {
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
       routerConfig: router,
+      builder: (context, child) {
+        return StartupGate(child: child ?? const SizedBox.shrink());
+      },
     );
   }
 }
