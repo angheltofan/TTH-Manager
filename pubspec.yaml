@@ -1,5 +1,5 @@
 name: tth_manager_app
-description: "A new Flutter project."
+description: "TTH Manager — Tales & Tech HUB management app for the learning centre."
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -26,17 +26,29 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.3
 
 flutter_launcher_icons:
-  android: true
+  android: "ic_launcher"
   ios: true
+  remove_alpha_ios: true
+  image_path: assets/branding/tth_logo.png
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/branding/tth_logo.png
   web:
     generate: true
-    image_path: assets/images/app_logo.png
-  image_path: assets/images/app_logo.png
-  min_sdk_android: 21
-  remove_alpha_ios: true
+    image_path: assets/branding/tth_logo.png
+    background_color: "#028FE3"
+    theme_color: "#028FE3"
+  windows:
+    generate: true
+    image_path: assets/branding/tth_logo.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/branding/tth_logo.png
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/branding/

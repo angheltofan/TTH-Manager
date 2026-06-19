@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "tth_manager_app" "\0"
+            VALUE "CompanyName", "Tales & Tech HUB" "\0"
+            VALUE "FileDescription", "TTH Manager" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "tth_manager_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "tth_manager_app.exe" "\0"
-            VALUE "ProductName", "tth_manager_app" "\0"
+            VALUE "InternalName", "TTH Manager" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Tales & Tech HUB. All rights reserved." "\0"
+            VALUE "OriginalFilename", "tth_manager.exe" "\0"
+            VALUE "ProductName", "TTH Manager" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

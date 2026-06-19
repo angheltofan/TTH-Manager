@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/team_chat/providers/team_chat_providers.dart';
 import '../providers/app_realtime_provider.dart';
+import 'bottom_nav_safe_area.dart';
 import 'sidebar.dart';
 import 'top_bar.dart';
 
@@ -62,13 +63,20 @@ class AppShell extends ConsumerWidget {
         }
 
         // Mobile / tablet — bottom nav bar + top bar.
+        final theme = Theme.of(context);
+        // Match the colour [NavigationBar] paints by default (M3 default
+        // is `colorScheme.surfaceContainer`) so [BottomNavSafeArea]'s
+        // extension into the iPhone home-indicator zone is visually
+        // continuous with the bar above it.
+        final navBg = theme.navigationBarTheme.backgroundColor ??
+            theme.colorScheme.surfaceContainer;
         return Scaffold(
           appBar: const AppTopBar(),
           body: child,
-          bottomNavigationBar: SafeArea(
-            bottom: true,
+          bottomNavigationBar: BottomNavSafeArea(
+            backgroundColor: navBg,
             child: Theme(
-              data: Theme.of(context).copyWith(
+              data: theme.copyWith(
                 navigationBarTheme: NavigationBarThemeData(
                   height: 64,
                   labelTextStyle: WidgetStateProperty.resolveWith((states) {

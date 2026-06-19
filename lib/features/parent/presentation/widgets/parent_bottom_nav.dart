@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/widgets/bottom_nav_safe_area.dart';
+
 /// Shared bottom navigation for the three top-level parent pages.
 /// Order, labels and icons mirror [ParentSidebar] so both shells share
 /// one visual language.
@@ -45,10 +47,17 @@ class ParentBottomNav extends StatelessWidget {
     // Without this override the parent shell would inherit the Material 3
     // default 80-px height and labelMedium weight, making it visually
     // taller and heavier than the staff bottom nav.
-    return SafeArea(
-      top: false,
+    final theme = Theme.of(context);
+    // Match the colour [NavigationBar] paints by default (M3 default
+    // is `colorScheme.surfaceContainer`) so [BottomNavSafeArea]'s
+    // extension into the iPhone home-indicator zone is visually
+    // continuous with the bar above it.
+    final navBg = theme.navigationBarTheme.backgroundColor ??
+        theme.colorScheme.surfaceContainer;
+    return BottomNavSafeArea(
+      backgroundColor: navBg,
       child: Theme(
-        data: Theme.of(context).copyWith(
+        data: theme.copyWith(
           navigationBarTheme: NavigationBarThemeData(
             height: 64,
             labelTextStyle: WidgetStateProperty.resolveWith((states) {

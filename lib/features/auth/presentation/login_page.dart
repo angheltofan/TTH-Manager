@@ -71,7 +71,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   children: [
                     Center(
                       child: Image.asset(
-                        'assets/images/app_logo.png',
+                        'assets/branding/tth_logo.png',
                         width: 80,
                         height: 80,
                         fit: BoxFit.contain,

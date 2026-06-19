@@ -141,7 +141,7 @@ class _BrandedSplashState extends State<_BrandedSplash>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Image.asset(
-                        'assets/images/app_logo.png',
+                        'assets/branding/tth_logo.png',
                         width: logoSize,
                         height: logoSize,
                         fit: BoxFit.contain,
