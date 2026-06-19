@@ -40,7 +40,7 @@ class ParentDashboardRepository {
         .from('child_parents')
         .select(
           'is_primary, created_at, '
-          'children!child_id(id, first_name, last_name, is_active)',
+          'children!child_id(id, first_name, last_name, is_active, payment_type)',
         )
         .eq('parent_id', parentId)
         .order('is_primary', ascending: false)
@@ -62,6 +62,7 @@ class ParentDashboardRepository {
         lastName: (child['last_name'] as String?) ?? '',
         isActive: true,
         isPrimary: (row['is_primary'] as bool?) ?? false,
+        paymentType: (child['payment_type'] as String?) ?? 'paid',
       );
       basics.add(basic);
       childOrder.add(id);
@@ -119,46 +120,78 @@ class ParentDashboardRepository {
     ParentChildBasic basic,
     List<String> seriesIds,
   ) async {
-    // Track positions so we can read results back by name. All four
-    // queries are independent; running them in a single Future.wait
-    // collapses two earlier sequential awaits into the parallel batch.
-    final results = await Future.wait<dynamic>([
-      // 1. Cycle progress count — attendance rows with no cycle yet.
-      _client
-          .from('attendance')
-          .select('id')
-          .eq('child_id', basic.id)
-          .eq('status', 'present')
-          .filter('payment_cycle_id', 'is', null)
-          .eq('is_archived', false),
-      // 2. Latest payment cycle (status + method + paid_at). `notes`
-      //    intentionally NOT selected (privacy rule, see prior audit).
-      _client
-          .from('payment_cycles')
-          .select('status, payment_method, paid_at, created_at')
-          .eq('child_id', basic.id)
-          .order('created_at', ascending: false)
-          .limit(1),
-      // 3. Workshop snapshot (any row, prefer most-recent regardless of
-      //    date) so the child card shows the active workshop's metadata
-      //    even when the weekly generator hasn't emitted a future row.
+    final isFree = basic.isFreeParticipant;
+
+    // Free participants never have a `payment_cycles` row written —
+    // a BEFORE INSERT trigger blocks it — so the queries we need are
+    // slightly different on the two paths:
+    //
+    //   • paid:  count of present attendance rows whose payment_cycle_id
+    //            is still NULL (the server clears it back to NULL by
+    //            relinking after each closed cycle, so this count is
+    //            implicitly windowed to the current open block);
+    //   • free:  the SAME query without the present-only filter, plus a
+    //            client-side walk that resets the running counter every
+    //            time it hits 4 — see [_countOpenPresentBlock]. The
+    //            server cannot reset for us because there is no cycle
+    //            to attach the rows to.
+    //
+    // The payment_cycles query is skipped entirely for free participants
+    // so they never accidentally surface stale legacy rows.
+    final futures = <Future<dynamic>>[
+      isFree
+          ? _client
+              .from('attendance')
+              .select('id, status, scheduled_workshops!scheduled_workshop_id(workshop_date, start_time)')
+              .eq('child_id', basic.id)
+              .eq('is_archived', false)
+          : _client
+              .from('attendance')
+              .select('id')
+              .eq('child_id', basic.id)
+              .eq('status', 'present')
+              .filter('payment_cycle_id', 'is', null)
+              .eq('is_archived', false),
+      if (!isFree)
+        _client
+            .from('payment_cycles')
+            .select('status, payment_method, paid_at, created_at')
+            .eq('child_id', basic.id)
+            .order('created_at', ascending: false)
+            .limit(1),
       _fetchAnyRowForSeries(seriesIds),
-      // 4. Next session — the actual next future `scheduled_workshops`
-      //    row for this child's series. Used by the focal-child picker.
       _fetchNextSessionForSeries(seriesIds),
-    ]);
+    ];
+    final results = await Future.wait<dynamic>(futures);
 
-    final presents = (results[0] as List);
-    final cycles = (results[1] as List).cast<Map<String, dynamic>>();
-    final snapshot = results[2] as ParentNextWorkshop?;
-    final futureRow = results[3] as ParentNextWorkshop?;
+    final int currentCyclePresent;
+    final String? paymentStatus;
+    final String? paymentMethod;
+    final DateTime? paymentPaidAt;
+    final ParentNextWorkshop? snapshot;
+    final ParentNextWorkshop? futureRow;
 
-    final cycle = cycles.isNotEmpty ? cycles.first : null;
-    final paymentStatus = cycle?['status'] as String?;
-    final paymentMethod = cycle?['payment_method'] as String?;
-    final paymentPaidAt = cycle?['paid_at'] != null
-        ? DateTime.tryParse(cycle!['paid_at'] as String)
-        : null;
+    if (isFree) {
+      currentCyclePresent = _countOpenPresentBlock(
+        (results[0] as List).cast<Map<String, dynamic>>(),
+      );
+      paymentStatus = null;
+      paymentMethod = null;
+      paymentPaidAt = null;
+      snapshot = results[1] as ParentNextWorkshop?;
+      futureRow = results[2] as ParentNextWorkshop?;
+    } else {
+      currentCyclePresent = (results[0] as List).length;
+      final cycles = (results[1] as List).cast<Map<String, dynamic>>();
+      final cycle = cycles.isNotEmpty ? cycles.first : null;
+      paymentStatus = cycle?['status'] as String?;
+      paymentMethod = cycle?['payment_method'] as String?;
+      paymentPaidAt = cycle?['paid_at'] != null
+          ? DateTime.tryParse(cycle!['paid_at'] as String)
+          : null;
+      snapshot = results[2] as ParentNextWorkshop?;
+      futureRow = results[3] as ParentNextWorkshop?;
+    }
 
     final primaryWorkshop = snapshot == null
         ? null
@@ -176,14 +209,47 @@ class ParentDashboardRepository {
       firstName: basic.firstName,
       lastName: basic.lastName,
       isPrimary: basic.isPrimary,
+      paymentType: basic.paymentType,
       activeWorkshopCount: seriesIds.length,
-      currentCyclePresent: presents.length,
+      currentCyclePresent: currentCyclePresent,
       paymentStatus: paymentStatus,
       paymentMethod: paymentMethod,
       paymentPaidAt: paymentPaidAt,
       primaryWorkshop: primaryWorkshop,
       nextWorkshopDate: futureRow?.workshopDate,
     );
+  }
+
+  /// Counts present rows since the most-recent 4th-present row.
+  /// Walks chronologically (workshop_date asc, start_time asc); each
+  /// time the running counter hits four, it resets to zero. The
+  /// trailing value is what the dashboard shows as the "X" in "X / 4".
+  ///
+  /// Used only for free participants — paid children get the same
+  /// reset for free server-side because the payment_cycle trigger
+  /// links each closed block of four rows and clears their
+  /// payment_cycle_id pool back to empty.
+  int _countOpenPresentBlock(List<Map<String, dynamic>> rows) {
+    final ordered = [...rows];
+    ordered.sort((a, b) {
+      final sa = a['scheduled_workshops'] as Map<String, dynamic>?;
+      final sb = b['scheduled_workshops'] as Map<String, dynamic>?;
+      final da = (sa?['workshop_date'] as String?) ?? '';
+      final db = (sb?['workshop_date'] as String?) ?? '';
+      final cmp = da.compareTo(db);
+      if (cmp != 0) return cmp;
+      final ta = (sa?['start_time'] as String?) ?? '';
+      final tb = (sb?['start_time'] as String?) ?? '';
+      return ta.compareTo(tb);
+    });
+    var count = 0;
+    for (final r in ordered) {
+      if (r['status'] == 'present') {
+        count += 1;
+        if (count == 4) count = 0;
+      }
+    }
+    return count;
   }
 
   // ── Next scheduled workshop across ALL linked children ─────────────────────

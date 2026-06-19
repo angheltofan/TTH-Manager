@@ -51,9 +51,11 @@ class _DemoWorkshopDetailsPageState
       await ref
           .read(demoWorkshopsRepositoryProvider)
           .updateStatus(widget.demoId, status);
-      ref.invalidate(demoWorkshopByIdProvider(widget.demoId));
-      ref.invalidate(todayDemoWorkshopsProvider);
-      ref.invalidate(dashboardStatsProvider);
+      // Manual invalidations removed: appRealtimeProvider's
+      // `rt:demo_workshops` channel already invalidates
+      // demoWorkshopByIdProvider, todayDemoWorkshopsProvider and
+      // dashboardStatsProvider on the same row change — duplicating
+      // them here fired six refetches per status update.
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)

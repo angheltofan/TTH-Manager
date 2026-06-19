@@ -24,22 +24,12 @@ class ChildDetailsPage extends ConsumerStatefulWidget {
 }
 
 class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.invalidate(childByIdProvider(widget.childId));
-      ref.invalidate(childWorkshopSeriesProvider(widget.childId));
-      ref.invalidate(childCurrentStatusProvider(widget.childId));
-      ref.invalidate(childCurrentStatusRowsProvider(widget.childId));
-      ref.invalidate(childPaymentCyclesNewProvider(widget.childId));
-      ref.invalidate(childPaymentStatusRowsProvider(widget.childId));
-    });
-    // Realtime is handled centrally by appRealtimeProvider, which subscribes
-    // to `attendance` and `payment_cycles` and invalidates the same child
-    // providers when the payload contains this child's id.
-  }
+  // Realtime is handled centrally by appRealtimeProvider, which subscribes
+  // to `attendance` and `payment_cycles` and invalidates the same child
+  // providers when the payload contains this child's id. The autoDispose
+  // family providers below mount fresh on first watch, so there's no need
+  // for a postFrameCallback invalidate-storm — that pattern was forcing a
+  // second fetch immediately after the first autoDispose mount.
 
   @override
   Widget build(BuildContext context) {

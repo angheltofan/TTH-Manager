@@ -9,6 +9,7 @@ class ParentChildBasic {
     required this.lastName,
     required this.isActive,
     this.isPrimary = false,
+    this.paymentType = 'paid',
   });
 
   final String id;
@@ -23,6 +24,14 @@ class ParentChildBasic {
 
   /// `child_parents.is_primary` — primary-first ordering.
   final bool isPrimary;
+
+  /// `children.payment_type` — `'paid'` (regular billing) or `'free'`
+  /// (sponsored / family friend / scholarship). Free children get the
+  /// same attendance progress UI as paid children but no payment block
+  /// and no financial messaging.
+  final String paymentType;
+
+  bool get isFreeParticipant => paymentType == 'free';
 
   String get fullName {
     final f = firstName.trim();

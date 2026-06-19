@@ -171,26 +171,59 @@ final routerProvider = Provider<GoRouter>((ref) {
       // the long-lived `parentLinkedChildrenBaseProvider` /
       // `parentEnrollmentsProvider` cache survives navigation untouched.
       ShellRoute(
+        // Parent shell deliberately uses `NoTransitionPage` for every
+        // route instead of the default `MaterialPage`. The default
+        // Material page transition fades the outgoing page over the
+        // incoming one for ~300 ms, which on this shell reads as
+        // "fragments from the previous page". `NoTransitionPage` swaps
+        // the slot in a single frame.
+        //
+        // Each page carries a stable, unique `ValueKey`. GoRouter uses
+        // the Page key to decide whether a route entry is the same
+        // element as the previous tree's, so a per-route key ensures
+        // the framework REPLACES the page subtree (rather than
+        // attempting to reuse it across routes), eliminating any
+        // chance of a stale element painting through the new page.
         builder: (context, state, child) => ParentShell(child: child),
         routes: [
           GoRoute(
             path: '/parent',
-            builder: (context, state) => const ParentDashboardPage(),
+            pageBuilder: (context, state) => const NoTransitionPage(
+              key: ValueKey('parent-dashboard'),
+              child: ParentDashboardPage(
+                key: PageStorageKey('parent-dashboard-content'),
+              ),
+            ),
           ),
           GoRoute(
             path: '/parent/info',
-            builder: (context, state) => const ParentAboutPage(),
+            pageBuilder: (context, state) => const NoTransitionPage(
+              key: ValueKey('parent-info'),
+              child: ParentAboutPage(
+                key: PageStorageKey('parent-info-content'),
+              ),
+            ),
           ),
           GoRoute(
             path: '/parent/settings',
-            builder: (context, state) => const ParentProfilePage(),
+            pageBuilder: (context, state) => const NoTransitionPage(
+              key: ValueKey('parent-settings'),
+              child: ParentProfilePage(
+                key: PageStorageKey('parent-settings-content'),
+              ),
+            ),
           ),
           GoRoute(
             path: '/parent/notifications',
             // Reuses the same NotificationsPage as the staff route — its
             // queries are already scoped to the current `recipient_id`
             // and contain no admin-only mutations.
-            builder: (context, state) => const NotificationsPage(),
+            pageBuilder: (context, state) => const NoTransitionPage(
+              key: ValueKey('parent-notifications'),
+              child: NotificationsPage(
+                key: PageStorageKey('parent-notifications-content'),
+              ),
+            ),
           ),
         ],
       ),

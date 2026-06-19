@@ -10,7 +10,6 @@ import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../children/providers/children_providers.dart';
-import '../../dashboard/providers/dashboard_providers.dart';
 import '../data/workshops_repository.dart';
 import '../domain/series_enrolled_child.dart';
 import '../domain/workshop_detail_row.dart';
@@ -269,16 +268,12 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
 
   void _afterSuccessfulDelete() {
     if (kDebugMode) debugPrint('[Workshop] permanently deleted');
-    // The page's own provider becomes stale (row no longer exists).
-    // Drop every list that surfaces this workshop / its series so the
-    // navigation target is consistent and refreshes pick up the
-    // removal.
-    ref.invalidate(workshopDetailsProvider(widget.workshopId));
-    ref.invalidate(workshopByIdProvider(widget.workshopId));
-    ref.invalidate(allScheduledWorkshopsProvider);
-    ref.invalidate(todayWorkshopsProvider);
-    ref.invalidate(workshopsListProvider);
-    ref.invalidate(dashboardStatsProvider);
+    // Realtime (rt:scheduled_workshops) fires DELETE on the same row
+    // and invalidates workshopDetailsProvider(id), workshopByIdProvider(id),
+    // allScheduledWorkshopsProvider, todayWorkshopsProvider,
+    // workshopsListProvider, dashboardStatsProvider — every list that
+    // surfaces this workshop. The page navigates away in the next
+    // statement, so a brief realtime delay is invisible to the user.
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Atelierul a fost șters definitiv.')),
@@ -337,15 +332,16 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
           .read(workshopsRepositoryProvider)
           .cancelSession(widget.workshopId);
       if (kDebugMode) debugPrint('[Workshop] session cancelled');
-      // Await the details refresh so the page reflects the new state before
-      // any navigation away from here.
+      // Await the details refresh so the page reflects the new state
+      // before any navigation away from here. The remaining lists
+      // (workshopByIdProvider, allScheduledWorkshopsProvider,
+      // todayWorkshopsProvider, workshopsListProvider,
+      // dashboardStatsProvider) are kept in sync by realtime
+      // (rt:scheduled_workshops) — duplicating their invalidates here
+      // doubled the refetch cost without changing the user-visible
+      // outcome on this page.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
       await ref.read(workshopDetailsProvider(widget.workshopId).future);
-      ref.invalidate(workshopByIdProvider(widget.workshopId));
-      ref.invalidate(allScheduledWorkshopsProvider);
-      ref.invalidate(todayWorkshopsProvider);
-      ref.invalidate(workshopsListProvider);
-      ref.invalidate(dashboardStatsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Sesiunea a fost anulată.')),
@@ -380,9 +376,13 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
       // briefly shows the previous status until the cached provider catches up.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
       await ref.read(workshopDetailsProvider(widget.workshopId).future);
+      // allChildrenProvider is intentionally invalidated here because the
+      // realtime rt:attendance handler SKIPS it when childId is present
+      // (it uses targeted childByIdProvider instead). This is the only
+      // refresh path for the children list's last-attendance pill.
+      // weeklyAttendancesProvider and dashboardStatsProvider are covered
+      // unconditionally by rt:attendance — no manual invalidate needed.
       ref.invalidate(allChildrenProvider);
-      ref.invalidate(weeklyAttendancesProvider);
-      ref.invalidate(dashboardStatsProvider);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -427,12 +427,13 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
           );
       // Await the details refresh so all rows show their new attendance
       // status before the "marking all" spinner clears.
+      // allChildrenProvider stays — realtime rt:attendance skips it when
+      // childId is in the payload. weeklyAttendancesProvider /
+      // dashboardStatsProvider are covered by realtime unconditionally.
       ref.invalidate(workshopDetailsProvider(widget.workshopId));
       await ref.read(workshopDetailsProvider(widget.workshopId).future);
       if (kDebugMode) debugPrint('[Workshop] all present marked');
       ref.invalidate(allChildrenProvider);
-      ref.invalidate(weeklyAttendancesProvider);
-      ref.invalidate(dashboardStatsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -647,11 +648,18 @@ class _WorkshopDetailsPageState extends ConsumerState<WorkshopDetailsPage> {
                   isAdmin: isAdmin,
                   seriesId: first.seriesId,
                   onEnrolled: () {
+                    // Keep this invalidate: realtime reaches
+                    // workshopDetailsProvider only via the
+                    // `seriesEnrolledChildrenProvider` → ref.listen
+                    // bridge defined above, which adds 50–200 ms of
+                    // latency. The user just clicked "add" — refresh
+                    // the roster immediately. allChildrenProvider is
+                    // already covered by rt:workshop_enrollments.
                     ref.invalidate(
                         workshopDetailsProvider(widget.workshopId));
-                    ref.invalidate(allChildrenProvider);
                     if (kDebugMode) {
-                      debugPrint('[Workshop] enrollment done, providers invalidated');
+                      debugPrint(
+                          '[Workshop] enrollment done, details refreshed');
                     }
                   },
                   markingAll: _markingAll,

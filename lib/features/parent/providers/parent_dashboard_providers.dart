@@ -13,6 +13,18 @@ final parentDashboardRepositoryProvider =
 });
 
 // ── Per-child summaries (derived from base + enrollments) ────────────────────
+//
+// All dashboard providers below are intentionally **non-autoDispose**.
+// The parent navigates Dashboard → Informații centru → Setări → back
+// to Dashboard frequently inside the persistent ShellRoute. With
+// autoDispose the providers would tear down every time the dashboard
+// page unmounted and re-issue 6 Supabase queries every time the
+// parent returned — that was the "Parent Dashboard does not load
+// fast" symptom. Keeping them alive lets the return trip render from
+// cache in a single frame; the `RefreshIndicator` on the dashboard
+// already invalidates them all on pull-to-refresh when fresh data is
+// needed. realtime is wired only on notifications, matching the
+// pre-existing behaviour.
 
 /// All linked children with the per-card summary fields. Reads the
 /// base + enrollments providers (single `child_parents` + single
@@ -22,7 +34,7 @@ final parentDashboardRepositoryProvider =
 /// count, payment cycle, workshop snapshot, next session) in a single
 /// `Future.wait` — no per-child `workshop_enrollments` query anymore.
 final parentLinkedChildrenProvider =
-    FutureProvider.autoDispose<List<ParentDashboardChild>>((ref) async {
+    FutureProvider<List<ParentDashboardChild>>((ref) async {
   final base = await ref.watch(parentLinkedChildrenBaseProvider.future);
   final enrollments = await ref.watch(parentEnrollmentsProvider.future);
   if (base.isEmpty) return const [];
@@ -42,7 +54,7 @@ final parentLinkedChildrenProvider =
 // ── Next-workshop KPI ────────────────────────────────────────────────────────
 
 final parentNextWorkshopSummaryProvider =
-    FutureProvider.autoDispose<ParentNextWorkshopSummary?>((ref) async {
+    FutureProvider<ParentNextWorkshopSummary?>((ref) async {
   final base = await ref.watch(parentLinkedChildrenBaseProvider.future);
   final enrollments = await ref.watch(parentEnrollmentsProvider.future);
   if (base.isEmpty || enrollments.isEmpty) return null;
@@ -54,7 +66,7 @@ final parentNextWorkshopSummaryProvider =
 // ── Attendance-rate KPI ──────────────────────────────────────────────────────
 
 final parentAttendanceRateSummaryProvider =
-    FutureProvider.autoDispose<ParentAttendanceRateSummary>((ref) async {
+    FutureProvider<ParentAttendanceRateSummary>((ref) async {
   final base = await ref.watch(parentLinkedChildrenBaseProvider.future);
   if (base.isEmpty) return const ParentAttendanceRateSummary.empty();
   return ref
@@ -69,7 +81,7 @@ final parentAttendanceRateSummaryProvider =
 /// already carries its latest cycle's `paymentStatus`). Priority is
 /// `overdue > due > ok`.
 final parentPaymentSummaryProvider =
-    Provider.autoDispose<AsyncValue<ParentPaymentSummary>>((ref) {
+    Provider<AsyncValue<ParentPaymentSummary>>((ref) {
   return ref.watch(parentLinkedChildrenProvider).whenData(
     (children) {
       final overdue = <ParentDashboardChild>[];
@@ -110,7 +122,7 @@ final parentPaymentSummaryProvider =
 
 // ── Recent activity feed ─────────────────────────────────────────────────────
 
-final parentRecentActivityFeedProvider = FutureProvider.autoDispose
+final parentRecentActivityFeedProvider = FutureProvider
     .family<List<ParentRecentActivityItem>, int>((ref, limit) async {
   final base = await ref.watch(parentLinkedChildrenBaseProvider.future);
   if (base.isEmpty) return const [];
@@ -122,7 +134,7 @@ final parentRecentActivityFeedProvider = FutureProvider.autoDispose
 // ── Weekly schedule ──────────────────────────────────────────────────────────
 
 final parentWeeklyScheduleProvider =
-    FutureProvider.autoDispose<List<ParentWeeklySession>>((ref) async {
+    FutureProvider<List<ParentWeeklySession>>((ref) async {
   final base = await ref.watch(parentLinkedChildrenBaseProvider.future);
   final enrollments = await ref.watch(parentEnrollmentsProvider.future);
   if (base.isEmpty || enrollments.isEmpty) return const [];

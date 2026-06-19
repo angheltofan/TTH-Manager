@@ -61,12 +61,14 @@ class ParentBottomNav extends StatelessWidget {
           // unselected (-1) back to 0. Matches the staff `AppShell`
           // behaviour for the same edge case.
           selectedIndex: currentIndex < 0 ? 0 : currentIndex,
+          // Unconditional navigation mirrors the staff `AppShell`
+          // bottom-nav handler: re-tapping the active item still calls
+          // `context.go(...)`. GoRouter treats this as a no-op when the
+          // location is already current, but the symmetry avoids any
+          // asymmetric feedback between the two shells.
+          onDestinationSelected: (i) => context.go(_items[i].path),
           labelBehavior:
               NavigationDestinationLabelBehavior.onlyShowSelected,
-          onDestinationSelected: (i) {
-            if (i == currentIndex) return;
-            context.go(_items[i].path);
-          },
           destinations: _items
               .map(
                 (item) => NavigationDestination(

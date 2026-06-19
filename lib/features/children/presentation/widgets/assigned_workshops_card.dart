@@ -87,7 +87,8 @@ class AssignedWorkshopsCard extends ConsumerWidget {
       builder: (_) => AddToWorkshopDialog(childId: childId),
     );
     if (added == true) {
-      ref.invalidate(childWorkshopSeriesProvider(childId));
+      // Realtime (rt:workshop_enrollments) already invalidates
+      // childWorkshopSeriesProvider(childId) on the same row change.
     }
   }
 
@@ -116,7 +117,8 @@ class AssignedWorkshopsCard extends ConsumerWidget {
       await ref
           .read(enrollmentRepositoryProvider)
           .removeChildFromWorkshopSeries(childId, series.id);
-      ref.invalidate(childWorkshopSeriesProvider(childId));
+      // Realtime (rt:workshop_enrollments) already invalidates
+      // childWorkshopSeriesProvider(childId) on the same row change.
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

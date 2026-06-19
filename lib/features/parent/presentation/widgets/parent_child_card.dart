@@ -65,11 +65,24 @@ class ParentChildCard extends StatelessWidget {
           _CycleProgressBlock(
             present: child.currentCyclePresent,
             target: child.currentCycleTarget,
-            showCountdown: _shouldShowCycleCountdown(child),
+            // Free children never see "...până la plată"; their cycle
+            // exists purely as an attendance counter, so the financial
+            // countdown is suppressed unconditionally for them. For paid
+            // children the previous rule still applies (suppress when
+            // a payment status already covers the answer).
+            showCountdown: !child.isFreeParticipant &&
+                _shouldShowCycleCountdown(child),
             accent: workshopColor,
           ),
-          const SizedBox(height: 14),
-          _PaymentBlock(child: child),
+          // The payment block is intentionally OMITTED for free
+          // participants: the parent should not see payment cycle
+          // concepts, financial messaging, or empty "no cycle"
+          // placeholders. The card simply ends after the attendance
+          // progress, exactly as the spec requires.
+          if (!child.isFreeParticipant) ...[
+            const SizedBox(height: 14),
+            _PaymentBlock(child: child),
+          ],
         ],
       ),
     );

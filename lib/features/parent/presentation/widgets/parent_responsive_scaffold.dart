@@ -19,17 +19,26 @@ const _kSidebarBreakpoint = 1200.0;
 /// Dashboard / Informații centru / Setări — sidebar, top bar, bottom nav
 /// and the `parentNotificationsRealtimeProvider` channel stay alive.
 ///
-/// Bottom-nav selection is derived from the current route, so individual
-/// pages never have to pass an index. The mapping mirrors `ParentSidebar`
-/// and `ParentBottomNav`:
-///   /parent         → 0 (Dashboard)
-///   /parent/info    → 1 (Informații centru)
-///   /parent/settings→ 2 (Setări)
-///   anything else   → unselected (e.g. /parent/notifications)
+/// Active-item detection follows the same recipe as the staff
+/// [AppShell]: a single `indexWhere(...)` over the canonical nav-items
+/// list, matching either an exact path or a child route via
+/// `startsWith('${path}/')` — so a deep link like
+/// `/parent/info/anything` still highlights "Informații centru" without
+/// requiring per-path special cases.
 class ParentResponsiveScaffold extends ConsumerWidget {
   const ParentResponsiveScaffold({super.key, required this.child});
 
   final Widget child;
+
+  /// Canonical nav-item list used by both the bottom-nav selection logic
+  /// and the desktop sidebar's active-item indicator. Order MUST match
+  /// [ParentSidebar] and [ParentBottomNav] so the two surfaces stay in
+  /// sync (the bottom nav reads selection by index off this list).
+  static const _navItems = <_NavItem>[
+    _NavItem(path: '/parent'),
+    _NavItem(path: '/parent/info'),
+    _NavItem(path: '/parent/settings'),
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,7 +49,22 @@ class ParentResponsiveScaffold extends ConsumerWidget {
 
     final theme = Theme.of(context);
     final location = GoRouterState.of(context).uri.path;
-    final bottomNavIndex = _indexForPath(location);
+    // Same recipe as `AppShell`: exact match OR `${path}/` prefix.
+    final bottomNavIndex = _navItems.indexWhere(
+      (item) =>
+          location == item.path || location.startsWith('${item.path}/'),
+    );
+
+    // The persistent shell paints `child` directly into its `body:`
+    // slot, which means the framework would normally try to reuse the
+    // `Element` of the previous route's subtree when the new route
+    // mounts (same parent, same `body:` position). Even with
+    // `NoTransitionPage`, that reuse can briefly leave fragments of
+    // the previous page visible. Wrapping `child` in a
+    // `KeyedSubtree` keyed by the current route path forces a clean
+    // element swap whenever the location changes, so the previous
+    // subtree is fully disposed before the new one paints.
+    final keyedBody = KeyedSubtree(key: ValueKey(location), child: child);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -58,7 +82,7 @@ class ParentResponsiveScaffold extends ConsumerWidget {
                       const AppDesktopTopBar(
                         viewAllNotificationRoute: '/parent/notifications',
                       ),
-                      Expanded(child: ClipRect(child: child)),
+                      Expanded(child: ClipRect(child: keyedBody)),
                     ],
                   ),
                 ),
@@ -73,23 +97,16 @@ class ParentResponsiveScaffold extends ConsumerWidget {
           appBar: const AppTopBar(
             viewAllNotificationRoute: '/parent/notifications',
           ),
-          body: child,
+          body: keyedBody,
           bottomNavigationBar:
               ParentBottomNav(currentIndex: bottomNavIndex),
         );
       },
     );
   }
+}
 
-  static int _indexForPath(String location) {
-    if (location == '/parent') return 0;
-    if (location == '/parent/info' || location.startsWith('/parent/info/')) {
-      return 1;
-    }
-    if (location == '/parent/settings' ||
-        location.startsWith('/parent/settings/')) {
-      return 2;
-    }
-    return -1;
-  }
+class _NavItem {
+  const _NavItem({required this.path});
+  final String path;
 }

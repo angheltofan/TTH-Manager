@@ -60,6 +60,7 @@ class ParentDashboardChild {
     required this.firstName,
     required this.lastName,
     this.isPrimary = false,
+    this.paymentType = 'paid',
     required this.activeWorkshopCount,
     required this.currentCyclePresent,
     this.currentCycleTarget = 4,
@@ -74,6 +75,14 @@ class ParentDashboardChild {
   final String firstName;
   final String lastName;
   final bool isPrimary;
+
+  /// `'paid'` or `'free'`. When `'free'`, the dashboard card hides the
+  /// payment block and the "...până la plată" countdown helper, and
+  /// the repository windows [currentCyclePresent] client-side because
+  /// no payment_cycles row is ever written for free children.
+  final String paymentType;
+
+  bool get isFreeParticipant => paymentType == 'free';
 
   /// Number of currently active `workshop_enrollments` rows.
   final int activeWorkshopCount;

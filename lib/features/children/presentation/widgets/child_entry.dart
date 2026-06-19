@@ -52,7 +52,9 @@ class ChildEntry extends ConsumerWidget {
     if (ok != true || !context.mounted) return;
     try {
       await ref.read(childrenRepositoryProvider).deactivateChild(child.id);
-      ref.invalidate(allChildrenProvider);
+      // rt:children + rt:workshop_enrollments cover allChildrenProvider
+      // and childByIdProvider on the same row change (deactivateChild
+      // touches both tables). Manual invalidate removed.
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${child.fullName} a fost inactivat.')));
@@ -89,7 +91,8 @@ class ChildEntry extends ConsumerWidget {
     if (ok != true || !context.mounted) return;
     try {
       await ref.read(childrenRepositoryProvider).reactivateChild(child.id);
-      ref.invalidate(allChildrenProvider);
+      // rt:children handles the UPDATE on `children.is_active` and
+      // invalidates allChildrenProvider + childByIdProvider.
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${child.fullName} a fost reactivat.')));
@@ -130,7 +133,9 @@ class ChildEntry extends ConsumerWidget {
     if (ok != true || !context.mounted) return;
     try {
       await ref.read(childrenRepositoryProvider).deletePermanently(child.id);
-      ref.invalidate(allChildrenProvider);
+      // rt:children fires DELETE on the row and invalidates
+      // allChildrenProvider — every list that surfaces this child
+      // refreshes within ~200 ms.
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('${child.fullName} a fost șters definitiv.')));

@@ -167,11 +167,11 @@ class PaymentStatusCard extends ConsumerWidget {
       },
     );
     if (result == null || !context.mounted) return;
-
-    ref.invalidate(childPaymentStatusRowsProvider(childId));
-    ref.invalidate(childPaymentCyclesNewProvider(childId));
-    ref.invalidate(childCurrentStatusRowsProvider(childId));
-    ref.invalidate(childCurrentStatusProvider(childId));
+    // Manual invalidations removed: rt:payment_cycles fires on the
+    // UPDATE that confirmPayment just performed and invalidates the
+    // four providers below (plus childByIdProvider) keyed on the same
+    // child_id. The user already awaited the dialog close — a 50–200
+    // ms realtime refresh is invisible inside that flow.
   }
 
   List<CycleGroup> _buildGroups(
