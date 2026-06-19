@@ -1,9 +1,22 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
+# Internal CMake identifier — MUST match the `name:` field in pubspec.yaml.
+# Flutter's tooling auto-generates plugin-registration code under
+# `flutter/ephemeral/` that contains generator expressions like
+# `$<TARGET_FILE_DIR:tth_manager_app>` keyed on the pubspec name. Renaming
+# this target to anything else makes `flutter run -d windows` fail with
+# "No target 'tth_manager_app'". User-visible branding lives elsewhere:
+#   • Window title  → runner/main.cpp  → `Win32Window::Create(L"TTH Manager")`
+#   • Exe metadata  → runner/Runner.rc → VERSIONINFO block (ProductName,
+#                                       FileDescription, CompanyName, …)
+#   • Exe icon      → runner/resources/app_icon.ico (TTH logo)
 project(tth_manager_app LANGUAGES CXX)
 
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
+# CMake target name AND on-disk `.exe` filename. Kept as the pubspec name
+# so the Flutter-generated build artefacts under `flutter/ephemeral/` line
+# up. The end user never sees this string in the title bar, taskbar,
+# Alt+Tab list, or Start Menu — those all read the Window Title /
+# FileDescription set above.
 set(BINARY_NAME "tth_manager_app")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent

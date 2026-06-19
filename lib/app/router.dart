@@ -30,6 +30,7 @@ import '../features/trainers/presentation/trainers_page.dart';
 import '../features/workshops/presentation/workshop_details_page.dart';
 import '../features/demo_workshops/presentation/demo_workshop_details_page.dart';
 import '../features/demo_workshops/presentation/demo_workshop_form_page.dart';
+import '../features/download/presentation/download_page.dart';
 import '../features/team_chat/presentation/team_chat_page.dart';
 import '../features/workshops/presentation/workshop_form_page.dart';
 import '../features/workshops/presentation/workshop_series_page.dart';
@@ -103,18 +104,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       // be reachable both before AND after the OTP exchange logs the
       // user in.
       final isParentSetupRoute = path == '/parent-setup';
+      // Public marketing/download page. Reachable by anyone, signed in
+      // or not — both branches of the guard below skip it so a parent
+      // already logged in can share the URL without being bounced back
+      // to their dashboard.
+      final isDownloadRoute = path == '/download';
 
       if (!loggedIn) {
-        return (isLoginRoute || isCallbackRoute || isParentSetupRoute)
+        return (isLoginRoute ||
+                isCallbackRoute ||
+                isParentSetupRoute ||
+                isDownloadRoute)
             ? null
             : '/login';
       }
 
-      // Logged in. The callback, set-password, and parent-setup pages
-      // handle their own navigation; the role gates below ignore them.
+      // Logged in. The callback, set-password, parent-setup and download
+      // pages handle their own navigation; the role gates below ignore
+      // them.
       if (isCallbackRoute) return null;
       if (isSetPasswordRoute) return null;
       if (isParentSetupRoute) return null;
+      if (isDownloadRoute) return null;
 
       final profile = ref.read(currentProfileProvider).valueOrNull;
       final isParentRoute =
@@ -173,6 +184,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/parent-setup',
         builder: (context, state) => const ParentSetupPage(),
+      ),
+      // Public download page — no shell, no auth required.
+      GoRoute(
+        path: '/download',
+        builder: (context, state) => const DownloadPage(),
       ),
       // ── Parent portal ────────────────────────────────────────────────
       //

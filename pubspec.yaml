@@ -40,7 +40,12 @@ flutter_launcher_icons:
     theme_color: "#028FE3"
   windows:
     generate: true
-    image_path: assets/branding/tth_logo.png
+    # Windows-specific variant: white rounded-square background with the
+    # TTH logo centred and padded. The transparent logo looked invisible
+    # against light Windows wallpapers; this version stays legible at
+    # 16/24/32/48/256-px icon caches that Windows + Inno Setup use for
+    # the executable, installer, desktop shortcut and Start Menu tile.
+    image_path: assets/branding/tth_icon_windows.png
     icon_size: 256
   macos:
     generate: true

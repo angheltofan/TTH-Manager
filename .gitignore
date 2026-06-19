@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Inno Setup output directory — installer binaries go to web/downloads/.
+/installer_output/
