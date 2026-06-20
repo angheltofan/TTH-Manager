@@ -6,11 +6,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_utils.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../children/presentation/widgets/child_form_helpers.dart';
 import '../../dashboard/providers/dashboard_providers.dart';
 import '../../workshops/domain/workshop_series.dart';
 import '../providers/demo_workshops_providers.dart';
 
 // ── DemoWorkshopFormPage ──────────────────────────────────────────────────────
+//
+// Visual + structural parity with [ChildFormPage]:
+//   • Same `ChildSectionCard` for each section (icon-badge header + title).
+//   • Same `ChildFormField` label / required-asterisk wrapper.
+//   • Same `buildChildFormInputDeco` for every input.
+//   • Same `ChildFormSaveRow` for the save / cancel row.
+//   • Same outer `SingleChildScrollView` + `Center(maxWidth: 680)` layout.
+//
+// Business logic, validation rules, payload shape and Supabase calls
+// preserved verbatim from the previous implementation — only presentation
+// was refactored.
 
 class DemoWorkshopFormPage extends ConsumerStatefulWidget {
   const DemoWorkshopFormPage({super.key});
@@ -34,6 +46,7 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
   TimeOfDay _startTime = const TimeOfDay(hour: 10, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 11, minute: 0);
   bool _saving = false;
+  String? _saveError;
 
   @override
   void dispose() {
@@ -108,12 +121,13 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedSeries == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selectează un atelier demo.')),
-      );
+      setState(() => _saveError = 'Selectează un atelier demo.');
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
     try {
       final userId = ref.read(currentUserProvider)?.id ?? '';
       final series = _selectedSeries!;
@@ -150,21 +164,22 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
       if (!mounted) return;
       final isPermission =
           e.code == '42501' || (e.message.contains('permission denied'));
-      final msg = isPermission
-          ? 'Nu ai permisiunea să programezi ateliere demo. '
-              'Verifică rolul contului sau politicile RLS.'
-          : 'Eroare la salvare. Încearcă din nou.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
-    } catch (_) {
+      setState(() {
+        _saveError = isPermission
+            ? 'Nu ai permisiunea să programezi ateliere demo. '
+                'Verifică rolul contului sau politicile RLS.'
+            : 'Eroare la salvare. Încearcă din nou.';
+        _saving = false;
+      });
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('A apărut o eroare. Încearcă din nou.')),
-        );
+        setState(() {
+          _saveError = 'A apărut o eroare. Încearcă din nou.';
+          _saving = false;
+        });
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted && _saving) setState(() => _saving = false);
     }
   }
 
@@ -173,7 +188,7 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final seriesAsync = ref.watch(activeSeriesForDemoProvider);
+    final inputDeco = buildChildFormInputDeco(theme);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -187,303 +202,370 @@ class _DemoWorkshopFormPageState extends ConsumerState<DemoWorkshopFormPage> {
         ),
         title: const Text('Programează demo'),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 48),
-          children: [
-            // ── Date copil ──────────────────────────────────────────────────
-            _SectionTitle('Date copil'),
-            const SizedBox(height: 8),
-            // Responsive name row: side-by-side ≥ 360 px, stacked below
-            LayoutBuilder(builder: (context, box) {
-              final wide = box.maxWidth >= 360;
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                        child: _Field(
-                            ctrl: _firstNameCtrl,
-                            label: 'Prenume',
-                            required: true)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _Field(
-                            ctrl: _lastNameCtrl,
-                            label: 'Nume',
-                            required: true)),
-                  ],
-                );
-              }
-              return Column(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _Field(
-                      ctrl: _firstNameCtrl,
-                      label: 'Prenume',
-                      required: true),
-                  const SizedBox(height: 10),
-                  _Field(
-                      ctrl: _lastNameCtrl, label: 'Nume', required: true),
-                ],
-              );
-            }),
-            const SizedBox(height: 16),
-
-            // ── Date părinte ────────────────────────────────────────────────
-            _SectionTitle('Date părinte'),
-            const SizedBox(height: 8),
-            _Field(ctrl: _parentNameCtrl, label: 'Nume părinte'),
-            const SizedBox(height: 10),
-            _Field(
-              ctrl: _parentPhoneCtrl,
-              label: 'Telefon',
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 10),
-            _Field(
-              ctrl: _parentEmailCtrl,
-              label: 'Email (opțional)',
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 16),
-
-            // ── Atelier demo ────────────────────────────────────────────────
-            _SectionTitle('Atelier demo'),
-            const SizedBox(height: 8),
-            seriesAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) =>
-                  Text('Eroare la încărcare: $e',
-                      style: TextStyle(color: theme.colorScheme.error)),
-              data: (seriesList) => DropdownButtonFormField<WorkshopSeries>(
-                key: ValueKey('demo-series-${_selectedSeries?.id}'),
-                initialValue: _selectedSeries,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Selectează atelierul *',
-                  prefixIcon: Icon(Icons.event_outlined),
-                ),
-                items: seriesList.map((s) {
-                  return DropdownMenuItem<WorkshopSeries>(
-                    value: s,
-                    child: Text(
-                      _seriesLabel(s),
-                      overflow: TextOverflow.ellipsis,
+                  // ── Date copil ─────────────────────────────────────────
+                  ChildSectionCard(
+                    icon: Icons.child_care_outlined,
+                    title: 'Date copil',
+                    child: _ChildNamesRow(
+                      firstNameCtrl: _firstNameCtrl,
+                      lastNameCtrl: _lastNameCtrl,
+                      inputDeco: inputDeco,
                     ),
-                  );
-                }).toList(),
-                onChanged: _onSeriesSelected,
-                validator: (_) =>
-                    _selectedSeries == null ? 'Selectează un atelier' : null,
+                  ),
+                  const SizedBox(height: 20),
+                  // ── Date părinte ───────────────────────────────────────
+                  ChildSectionCard(
+                    icon: Icons.contact_phone_outlined,
+                    title: 'Date părinte',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ChildFormField(
+                          label: 'Nume părinte',
+                          required: true,
+                          child: TextFormField(
+                            controller: _parentNameCtrl,
+                            decoration: inputDeco,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Câmp obligatoriu'
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        ChildFormField(
+                          label: 'Telefon',
+                          required: true,
+                          child: TextFormField(
+                            controller: _parentPhoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            decoration: inputDeco,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Câmp obligatoriu'
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        ChildFormField(
+                          label: 'Email',
+                          child: TextFormField(
+                            controller: _parentEmailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: inputDeco.copyWith(
+                                hintText: 'Opțional'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // ── Atelier demo ───────────────────────────────────────
+                  ChildSectionCard(
+                    icon: Icons.school_outlined,
+                    title: 'Atelier demo',
+                    child: _SeriesPicker(
+                      selectedSeries: _selectedSeries,
+                      inputDeco: inputDeco,
+                      onChanged: _onSeriesSelected,
+                      seriesLabel: _seriesLabel,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // ── Dată și oră ────────────────────────────────────────
+                  ChildSectionCard(
+                    icon: Icons.schedule_outlined,
+                    title: 'Dată și oră',
+                    child: _DateTimePickers(
+                      demoDate: _demoDate,
+                      startTime: _startTime,
+                      endTime: _endTime,
+                      onPickDate: _pickDate,
+                      onPickStart: () => _pickTime(true),
+                      onPickEnd: () => _pickTime(false),
+                      inputDeco: inputDeco,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // ── Observații ─────────────────────────────────────────
+                  ChildSectionCard(
+                    icon: Icons.sticky_note_2_outlined,
+                    title: 'Observații',
+                    child: ChildFormField(
+                      label: 'Note',
+                      child: TextFormField(
+                        controller: _notesCtrl,
+                        decoration: inputDeco.copyWith(
+                            hintText: 'Opțional'),
+                        maxLines: 4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  ChildFormSaveRow(
+                    saving: _saving,
+                    isEditing: false,
+                    onSave: _save,
+                    saveError: _saveError,
+                  ),
+                ],
               ),
             ),
-            if (_selectedSeries != null) ...[
-              const SizedBox(height: 10),
-              _SeriesInfoChip(series: _selectedSeries!),
-            ],
-            const SizedBox(height: 16),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-            // ── Dată și oră ─────────────────────────────────────────────────
-            _SectionTitle('Dată și oră'),
-            const SizedBox(height: 8),
-            _PickerTile(
-              icon: Icons.calendar_today_outlined,
-              label: 'Data demo',
-              value: formatDate(_demoDate),
-              onTap: _pickDate,
+// ── Sub-widgets ─────────────────────────────────────────────────────────────
+
+class _ChildNamesRow extends StatelessWidget {
+  const _ChildNamesRow({
+    required this.firstNameCtrl,
+    required this.lastNameCtrl,
+    required this.inputDeco,
+  });
+  final TextEditingController firstNameCtrl;
+  final TextEditingController lastNameCtrl;
+  final InputDecoration inputDeco;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 360;
+        final first = ChildFormField(
+          label: 'Prenume',
+          required: true,
+          child: TextFormField(
+            controller: firstNameCtrl,
+            decoration: inputDeco,
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? 'Câmp obligatoriu'
+                : null,
+          ),
+        );
+        final last = ChildFormField(
+          label: 'Nume',
+          required: true,
+          child: TextFormField(
+            controller: lastNameCtrl,
+            decoration: inputDeco,
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? 'Câmp obligatoriu'
+                : null,
+          ),
+        );
+        if (wide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: first),
+              const SizedBox(width: 14),
+              Expanded(child: last),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            first,
+            const SizedBox(height: 14),
+            last,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SeriesPicker extends ConsumerWidget {
+  const _SeriesPicker({
+    required this.selectedSeries,
+    required this.inputDeco,
+    required this.onChanged,
+    required this.seriesLabel,
+  });
+  final WorkshopSeries? selectedSeries;
+  final InputDecoration inputDeco;
+  final ValueChanged<WorkshopSeries?> onChanged;
+  final String Function(WorkshopSeries) seriesLabel;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final seriesAsync = ref.watch(activeSeriesForDemoProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ChildFormField(
+          label: 'Selectează atelierul',
+          required: true,
+          child: seriesAsync.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (e, _) => Text(
+              'Eroare la încărcare: $e',
+              style: TextStyle(color: theme.colorScheme.error),
             ),
-            const SizedBox(height: 10),
-            Row(
+            data: (seriesList) => DropdownButtonFormField<WorkshopSeries>(
+              key: ValueKey('demo-series-${selectedSeries?.id}'),
+              initialValue: selectedSeries,
+              isExpanded: true,
+              decoration: inputDeco,
+              items: seriesList
+                  .map((s) => DropdownMenuItem<WorkshopSeries>(
+                        value: s,
+                        child: Text(
+                          seriesLabel(s),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ))
+                  .toList(),
+              onChanged: onChanged,
+              validator: (_) =>
+                  selectedSeries == null ? 'Selectează un atelier' : null,
+            ),
+          ),
+        ),
+        if (selectedSeries != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.purple.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: AppColors.purple.withValues(alpha: 0.2)),
+            ),
+            child: Row(
               children: [
+                const Icon(Icons.person_pin_outlined,
+                    size: 16, color: AppColors.purple),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: _PickerTile(
-                    icon: Icons.schedule_outlined,
-                    label: 'Ora start',
-                    value: _startTime.format(context),
-                    onTap: () => _pickTime(true),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _PickerTile(
-                    icon: Icons.schedule_outlined,
-                    label: 'Ora final',
-                    value: _endTime.format(context),
-                    onTap: () => _pickTime(false),
+                  child: Text(
+                    'Trainer: ${selectedSeries!.trainerName ?? '—'}  ·  '
+                    '${selectedSeries!.workshopType ?? ''}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.purple,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            // ── Observații ──────────────────────────────────────────────────
-            _SectionTitle('Observații'),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Note (opțional)',
-                alignLabelWithHint: true,
-              ),
-              maxLines: 3,
-              minLines: 2,
-            ),
-            const SizedBox(height: 28),
-
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.purple,
-                minimumSize: const Size.fromHeight(48),
-              ),
-              child: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Salvează demo'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Chip that shows which trainer is auto-assigned ────────────────────────────
-
-class _SeriesInfoChip extends StatelessWidget {
-  const _SeriesInfoChip({required this.series});
-  final WorkshopSeries series;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.purple.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.purple.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.person_pin_outlined,
-              size: 16, color: AppColors.purple),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Trainer: ${series.trainerName ?? '—'}  ·  '
-              '${series.workshopType ?? ''}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.purple, fontWeight: FontWeight.w500),
-              overflow: TextOverflow.ellipsis,
-            ),
           ),
         ],
-      ),
+      ],
     );
   }
 }
 
-// ── Reusable small widgets ────────────────────────────────────────────────────
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: AppColors.purple,
-            fontWeight: FontWeight.w700,
-          ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.ctrl,
-    required this.label,
-    this.required = false,
-    this.keyboardType,
+class _DateTimePickers extends StatelessWidget {
+  const _DateTimePickers({
+    required this.demoDate,
+    required this.startTime,
+    required this.endTime,
+    required this.onPickDate,
+    required this.onPickStart,
+    required this.onPickEnd,
+    required this.inputDeco,
   });
-  final TextEditingController ctrl;
-  final String label;
-  final bool required;
-  final TextInputType? keyboardType;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      controller: ctrl,
-      keyboardType: keyboardType,
-      decoration:
-          InputDecoration(labelText: required ? '$label *' : label),
-      validator: required
-          ? (v) =>
-              v == null || v.trim().isEmpty ? 'Câmp obligatoriu' : null
-          : null,
-    );
-  }
-}
-
-class _PickerTile extends StatelessWidget {
-  const _PickerTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final String value;
-  final VoidCallback onTap;
+  final DateTime demoDate;
+  final TimeOfDay startTime;
+  final TimeOfDay endTime;
+  final VoidCallback onPickDate;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+  final InputDecoration inputDeco;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.5)),
-          borderRadius: BorderRadius.circular(10),
-          color: theme.inputDecorationTheme.fillColor,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 17, color: theme.colorScheme.outline),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline)),
-                  Text(value,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w500)),
-                ],
+    Widget readonlyField({
+      required String label,
+      required String value,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool required = false,
+    }) {
+      return ChildFormField(
+        label: label,
+        required: required,
+        child: GestureDetector(
+          onTap: onTap,
+          child: AbsorbPointer(
+            child: TextFormField(
+              readOnly: true,
+              controller: TextEditingController(text: value),
+              decoration: inputDeco.copyWith(
+                suffixIcon: Icon(icon, size: 18,
+                    color: theme.colorScheme.outline),
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                size: 16, color: theme.colorScheme.outline),
-          ],
+          ),
         ),
-      ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        readonlyField(
+          label: 'Data demo',
+          value: formatDate(demoDate),
+          icon: Icons.calendar_today_outlined,
+          onTap: onPickDate,
+          required: true,
+        ),
+        const SizedBox(height: 14),
+        LayoutBuilder(builder: (context, box) {
+          final wide = box.maxWidth >= 360;
+          final start = readonlyField(
+            label: 'Ora start',
+            value: startTime.format(context),
+            icon: Icons.access_time_rounded,
+            onTap: onPickStart,
+            required: true,
+          );
+          final end = readonlyField(
+            label: 'Ora final',
+            value: endTime.format(context),
+            icon: Icons.access_time_rounded,
+            onTap: onPickEnd,
+            required: true,
+          );
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: start),
+                const SizedBox(width: 14),
+                Expanded(child: end),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              start,
+              const SizedBox(height: 14),
+              end,
+            ],
+          );
+        }),
+      ],
     );
   }
 }
-

@@ -42,10 +42,25 @@ class NotificationDropdown extends ConsumerWidget {
     final isParent =
         ref.watch(currentProfileProvider).valueOrNull?.isParent ?? false;
 
+    // The dropdown is rendered in two surfaces:
+    //   • Desktop / wide → showDialog wraps it in `_NotificationDialog` which
+    //     supplies an outer `SingleChildScrollView` (the dropdown shrink-wraps).
+    //   • Mobile / narrow → showModalBottomSheet inside a `ConstrainedBox`
+    //     (capped at 70 % of screen height). In this mode the dropdown
+    //     itself must scroll the list, otherwise the outer `Column` —
+    //     previously `mainAxisSize.min` — would overflow the cap and clip
+    //     the bottom tiles + the "Toate notificările" footer.
+    //
+    // The fix: when `showHandle == true` (sheet mode) the list slot
+    // becomes a real `Expanded(ListView.separated(...))` and the outer
+    // column uses `mainAxisSize.max` so Expanded has a bounded parent.
+    // Header + footer stay pinned. Desktop mode keeps the original
+    // shrink-wrap Column so the outer SingleChildScrollView still works.
+    final inSheet = showHandle;
     return Material(
       type: MaterialType.transparency,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: inSheet ? MainAxisSize.max : MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Drag handle (sheet mode only)
@@ -82,7 +97,8 @@ class NotificationDropdown extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      unread > 9 ? '9+' : '$unread',                      style: const TextStyle(
+                      unread > 9 ? '9+' : '$unread',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -105,74 +121,27 @@ class NotificationDropdown extends ConsumerWidget {
 
           const Divider(height: 1),
 
-          // Notification list
-          recentAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text(
-                'Eroare: $e',
-                style:
-                    TextStyle(color: theme.colorScheme.error, fontSize: 12),
-              ),
-            ),
-            data: (list) {
-              if (list.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 28, horizontal: 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.notifications_off_outlined,
-                          size: 36, color: AppColors.muted),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Nu există notificări noi.',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: AppColors.muted),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                );
+          // Notification list area
+          _NotificationListArea(
+            inSheet: inSheet,
+            recentAsync: recentAsync,
+            theme: theme,
+            onTileTap: (n) async {
+              if (!n.isRead) {
+                await ref
+                    .read(notificationsRepositoryProvider)
+                    .markAsRead(notificationId: n.id);
+                ref.invalidate(notificationsProvider);
+                ref.invalidate(unreadCountFutureProvider);
               }
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (int i = 0; i < list.length; i++) ...[
-                    if (i > 0)
-                      const Divider(
-                          height: 1, indent: 54, endIndent: 14),
-                    _DropdownTile(
-                      notification: list[i],
-                      onTap: () async {
-                        final n = list[i];
-                        if (!n.isRead) {
-                          await ref
-                              .read(notificationsRepositoryProvider)
-                              .markAsRead(notificationId: n.id);
-                          ref.invalidate(notificationsProvider);
-                          ref.invalidate(unreadCountFutureProvider);
-                        }
-                        final url = n.actionUrl;
-                        if (url != null &&
-                            url.isNotEmpty &&
-                            context.mounted) {
-                          context.go(resolveNotificationNavUrl(
-                            url,
-                            isParent: isParent,
-                          ));
-                        }
-                        onClose();
-                      },
-                    ),
-                  ],
-                ],
-              );
+              final url = n.actionUrl;
+              if (url != null && url.isNotEmpty && context.mounted) {
+                context.go(resolveNotificationNavUrl(
+                  url,
+                  isParent: isParent,
+                ));
+              }
+              onClose();
             },
           ),
 
@@ -210,6 +179,96 @@ class NotificationDropdown extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// List slot inside [NotificationDropdown].
+///
+/// In sheet mode it wraps the tiles in `Expanded(ListView.separated)` so
+/// the user can reach every notification on iPhone width. In dropdown mode
+/// (desktop dialog) it returns a shrink-wrapping `Column` so the parent
+/// `SingleChildScrollView` continues to govern overflow.
+class _NotificationListArea extends StatelessWidget {
+  const _NotificationListArea({
+    required this.inSheet,
+    required this.recentAsync,
+    required this.theme,
+    required this.onTileTap,
+  });
+
+  final bool inSheet;
+  final AsyncValue<List<AppNotification>> recentAsync;
+  final ThemeData theme;
+  final void Function(AppNotification) onTileTap;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget content = recentAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      ),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text(
+          'Eroare: $e',
+          style: TextStyle(color: theme.colorScheme.error, fontSize: 12),
+        ),
+      ),
+      data: (list) {
+        if (list.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(
+                vertical: 28, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.notifications_off_outlined,
+                    size: 36, color: AppColors.muted),
+                const SizedBox(height: 8),
+                Text(
+                  'Nu există notificări noi.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: AppColors.muted),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+        if (inSheet) {
+          // Sheet mode: real ListView scrolls inside Expanded.
+          return ListView.separated(
+            // Defensive: avoid the Material card painting through the
+            // bottom edge of the sheet on devices with thin home indicators.
+            padding: EdgeInsets.zero,
+            itemCount: list.length,
+            separatorBuilder: (_, _) =>
+                const Divider(height: 1, indent: 54, endIndent: 14),
+            itemBuilder: (_, i) => _DropdownTile(
+              notification: list[i],
+              onTap: () => onTileTap(list[i]),
+            ),
+          );
+        }
+        // Desktop dropdown: shrink-wrap; parent SingleChildScrollView handles overflow.
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (int i = 0; i < list.length; i++) ...[
+              if (i > 0)
+                const Divider(height: 1, indent: 54, endIndent: 14),
+              _DropdownTile(
+                notification: list[i],
+                onTap: () => onTileTap(list[i]),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+
+    return inSheet ? Expanded(child: content) : content;
   }
 }
 

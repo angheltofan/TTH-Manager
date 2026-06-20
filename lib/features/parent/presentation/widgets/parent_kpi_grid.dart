@@ -96,17 +96,17 @@ class ParentKpiGrid extends ConsumerWidget {
           );
         }
 
-        // Restructured layout:
-        //   value      → short weekday name ("Luni")          ← always 1 word
-        //   subLabel   → time range ("17:30 – 19:00")          ← always short
-        //   extraLine  → workshop title (if known, optional)   ← truncates
-        // This keeps the headline + time fully visible on iPhone width
-        // and pushes any truncation to the third line where it does not
-        // hide essential information.
+        // Layout matches the other three KPI cards 1-for-1 so all four
+        // share the same height — the previous optional 3rd line (the
+        // workshop title) made this card taller than its siblings and
+        // broke the grid row alignment on mobile. The workshop name is
+        // already visible in the "Copiii mei" cards below, so removing
+        // it from the KPI loses no information.
+        //
+        //   value    → short weekday name ("Luni")  ← always 1 word
+        //   subLabel → time range ("17:30 – 19:00") ← always short
         final date = next.workshopDate;
         final timePart = _timeRange(next.startTime, next.endTime);
-        final names = next.childNames;
-        final hasMultipleChildren = children.length > 1;
 
         final value = date != null
             ? _shortRoWeekday(date)
@@ -116,20 +116,12 @@ class ParentKpiGrid extends ConsumerWidget {
 
         final subLabel = timePart.isNotEmpty ? timePart : 'Programat';
 
-        // Third line: workshop title primarily, otherwise — when more
-        // than one child is linked — the attending child names.
-        final title = next.displayLabel.trim();
-        final extraLine = (hasMultipleChildren && names.isNotEmpty)
-            ? names.join(', ')
-            : (title.isNotEmpty ? title : null);
-
         return StatCard(
           label: 'Următorul atelier',
           value: value,
           icon: Icons.event_note_outlined,
           color: AppColors.info,
           subLabel: subLabel,
-          extraLine: extraLine,
           dense: true,
         );
       },
