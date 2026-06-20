@@ -150,7 +150,17 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // Open maximised by default. The Flutter engine triggers this once via
+  // `SetNextFrameCallback` (see FlutterWindow::OnCreate) so the window
+  // springs to its final size exactly when the first frame is ready —
+  // no perceptible resize flash.
+  //
+  // `SW_SHOWMAXIMIZED` is NOT fullscreen: the Windows title bar stays
+  // visible, the taskbar stays visible, and the restore / minimise /
+  // close buttons remain functional. The user can un-maximise from the
+  // title bar, drag the window, snap it elsewhere, etc. — all standard
+  // `WS_OVERLAPPEDWINDOW` behaviour preserved.
+  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
 }
 
 // static

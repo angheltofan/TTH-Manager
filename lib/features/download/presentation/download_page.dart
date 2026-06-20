@@ -19,15 +19,16 @@ import '../../../core/theme/app_theme.dart';
 class DownloadPage extends StatelessWidget {
   const DownloadPage({super.key});
 
-  /// Public URL of the Windows installer. Hosted at the Vercel deployment
-  /// under `web/downloads/TTHManagerSetup.exe`. If the binary outgrows
-  /// Vercel's static-file ergonomics, swap this constant for a GitHub
-  /// Releases asset URL or a Cloudflare R2 public object URL — the rest
-  /// of this page does not change.
+  /// Public URL of the Windows installer.
+  ///
+  /// Hosted via GitHub Releases — public, unlimited bandwidth, versioned
+  /// per tag. If the file should move to Vercel-static or Cloudflare R2
+  /// later, swap this constant — the rest of the page does not change.
   static const String _installerUrl =
-      'https://tth-manager.vercel.app/downloads/TTHManagerSetup.exe';
+      'https://github.com/angheltofan/TTH-Manager/releases/download/v1.0.1/TTHManagerSetup.exe';
 
-  static const String _appVersion = 'Versiunea 1.0.0';
+  static const String _appVersion = 'Versiunea 1.0.1';
+  static const String _platformNote = 'Pentru Windows 10 și Windows 11';
 
   Future<void> _downloadInstaller(BuildContext context) async {
     final uri = Uri.parse(_installerUrl);
@@ -68,6 +69,7 @@ class DownloadPage extends StatelessWidget {
                     onDownload: () => _downloadInstaller(context),
                     onOpenWebApp: () => _openWebApp(context),
                     version: _appVersion,
+                    platformNote: _platformNote,
                   ),
                 ),
               ),
@@ -86,6 +88,7 @@ class _DownloadCard extends StatelessWidget {
     required this.onDownload,
     required this.onOpenWebApp,
     required this.version,
+    required this.platformNote,
   });
 
   final ThemeData theme;
@@ -93,6 +96,7 @@ class _DownloadCard extends StatelessWidget {
   final VoidCallback onDownload;
   final VoidCallback onOpenWebApp;
   final String version;
+  final String platformNote;
 
   @override
   Widget build(BuildContext context) {
@@ -147,6 +151,11 @@ class _DownloadCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 28),
+          _PlatformSectionHeader(
+            label: 'Windows',
+            icon: Icons.window_rounded,
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -178,7 +187,17 @@ class _DownloadCard extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 4),
+          Text(
+            platformNote,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline.withValues(alpha: 0.85),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -204,6 +223,41 @@ class _DownloadCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Section heading shown above each platform's download CTA. Currently
+/// only "Windows" is rendered, but the same widget will scale cleanly
+/// when macOS / Linux / mobile installers are added later.
+class _PlatformSectionHeader extends StatelessWidget {
+  const _PlatformSectionHeader({
+    required this.label,
+    required this.icon,
+  });
+
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurface.withValues(alpha: 0.78);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+            fontSize: 13,
+          ),
+        ),
+      ],
     );
   }
 }
