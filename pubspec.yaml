@@ -18,6 +18,12 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.4
   flutter_markdown: ^0.7.4
+  # Team-chat attachment pickers — added 2026-06-22.
+  # Both packages handle their own platform-channel registration on
+  # Android / iOS / web. iOS additionally requires NSPhoto / NSCamera
+  # usage descriptions; those live in ios/Runner/Info.plist.
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2
 
 dev_dependencies:
   flutter_test:

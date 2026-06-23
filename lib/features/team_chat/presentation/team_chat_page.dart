@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../auth/providers/auth_providers.dart';
+import '../data/team_chat_repository.dart' show UploadedAttachment;
 import '../domain/team_chat_message.dart';
 import '../providers/team_chat_providers.dart';
 import 'widgets/chat_app_bar.dart';
@@ -27,7 +28,6 @@ class TeamChatPage extends ConsumerStatefulWidget {
 class _TeamChatPageState extends ConsumerState<TeamChatPage> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  bool _sending = false;
 
   DateTime? _previousLastReadAt;
   bool _capturedPreviousLastRead = false;
@@ -72,16 +72,24 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
     ref.read(chatLastReadAtProvider.notifier).markRead(newestTime);
   }
 
-  Future<void> _send() async {
-    final body = _msgCtrl.text.trim();
-    if (body.isEmpty) return;
+  /// Bridge between [ChatComposer]'s `SendChatMessage` signature and
+  /// [TeamChatRepository.sendMessage]. The composer pre-uploads the
+  /// attachment (so by the time we land here `body` is text-only and
+  /// `attachment` carries a final URL), then we just insert the row
+  /// and pull the list to the bottom.
+  ///
+  /// Errors propagate back to the composer so its send button can
+  /// re-enable; the user-visible message is shown here as a SnackBar.
+  Future<void> _send({String? body, UploadedAttachment? attachment}) async {
     final user = ref.read(currentUserProvider);
     if (user == null) return;
-
-    setState(() => _sending = true);
+    final hasText = body != null && body.trim().isNotEmpty;
+    if (!hasText && attachment == null) return;
     try {
-      await ref.read(teamChatRepositoryProvider).sendMessage(body: body);
-      _msgCtrl.clear();
+      await ref.read(teamChatRepositoryProvider).sendMessage(
+            body: hasText ? body : null,
+            attachment: attachment,
+          );
       _scrollToNewest();
     } on PostgrestException catch (e) {
       if (mounted) {
@@ -89,14 +97,14 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
           SnackBar(content: Text('Eroare: ${e.message}')),
         );
       }
+      rethrow;
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Mesajul nu a putut fi trimis.')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      rethrow;
     }
   }
 
@@ -258,7 +266,6 @@ class _TeamChatPageState extends ConsumerState<TeamChatPage> {
             ),
             ChatComposer(
               controller: _msgCtrl,
-              sending: _sending,
               onSend: _send,
             ),
           ],

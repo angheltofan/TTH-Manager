@@ -36,18 +36,36 @@ class BottomNavSafeArea extends StatelessWidget {
     super.key,
     required this.child,
     required this.backgroundColor,
+    this.insetLift = 8,
   });
 
   final Widget child;
   final Color backgroundColor;
 
+  /// Extra space added between the bar's content row and the bottom
+  /// system inset (iPhone Home Indicator or Android gesture-nav pill).
+  /// Applied ONLY when `viewPadding.bottom > 0`.
+  ///
+  /// Without this, the icon + label row sits flush against the inset
+  /// zone — visually cramped on iPhones with onlyShowSelected labels.
+  /// 8 dp of lift matches the spacing iOS Mail / WhatsApp / Telegram
+  /// use above the indicator and gives the active item's label real
+  /// breathing room. On platforms without a bottom inset the lift
+  /// collapses to 0 so Android 3-button-nav / desktop / iPad are
+  /// unchanged.
+  final double insetLift;
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    // Only lift on devices that actually have a bottom inset. Adding
+    // the lift unconditionally would shrink the usable scaffold body
+    // for the (rare) hosts that have no inset at all.
+    final lift = bottomInset > 0 ? insetLift : 0.0;
     return Material(
       color: backgroundColor,
       child: Padding(
-        padding: EdgeInsets.only(bottom: bottomInset),
+        padding: EdgeInsets.only(bottom: bottomInset + lift),
         child: MediaQuery.removePadding(
           context: context,
           removeBottom: true,

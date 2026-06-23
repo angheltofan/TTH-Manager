@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TTH Manager folosește biblioteca foto pentru a atașa imagini în chatul echipei.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TTH Manager folosește camera pentru a captura fotografii ce pot fi atașate în chatul echipei.</string>
 </dict>
 </plist>
