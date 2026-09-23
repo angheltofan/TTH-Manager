@@ -341,11 +341,25 @@ class _DetailPane extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final present = snapshot.currentPresentCount;
-    final statusLabel = present >= 4
-        ? 'Complet · așteaptă plată'
-        : present == 0
-            ? 'În desfășurare'
-            : 'În desfășurare · $present/4';
+    // Advance is only meaningful for a series that isn't yet complete.
+    // At 4/4 the recalc trigger has already produced a paid/due cycle.
+    final canOfferAdvance = !snapshot.hasAdvance && present < 4;
+    final statusLabel = snapshot.hasAdvance
+        ? 'Plătit în avans · $present/4'
+        : present >= 4
+            ? 'Complet · așteaptă plată'
+            : present == 0
+                ? 'În desfășurare'
+                : 'În desfășurare · $present/4';
+
+    // Fetch the child once so the advance button can hide for free
+    // participants (their trigger silently blocks payment_cycle
+    // inserts, so exposing the button would show a UX no-op).
+    final child = ref.watch(childByIdProvider(childId)).valueOrNull;
+    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final showAdvanceAction = canOfferAdvance &&
+        (profile?.isStaff ?? false) &&
+        (child != null && !child.isFreeParticipant);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -391,7 +405,12 @@ class _DetailPane extends ConsumerWidget {
               PresentProgressDots(presentCount: present),
               const Spacer(),
               if (snapshot.hasAdvance)
-                _AdvanceBadge(cycle: snapshot.advanceCycle!),
+                _AdvanceBadge(cycle: snapshot.advanceCycle!)
+              else if (showAdvanceAction)
+                _MarkAdvanceButton(
+                  childId: childId,
+                  seriesId: snapshot.seriesId,
+                ),
             ],
           ),
           if (snapshot.currentBlock.isNotEmpty) ...[
@@ -481,6 +500,94 @@ class _AdvanceBadge extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: AppColors.info,
         ),
+      ),
+    );
+  }
+}
+
+/// Compact action button that opens the standard payment method dialog
+/// (POS / OP + optional note) and, on confirmation, calls the existing
+/// `markAdvancePayment` RPC scoped to (child, series). Restores the
+/// pre-refactor advance-payment flow that lived on the old
+/// `ActiveCycleSection`; visibility rules match the current confirm-a-
+/// due-cycle button (staff role, non-free child), added by
+/// `_DetailPane` before instantiating this widget.
+class _MarkAdvanceButton extends ConsumerStatefulWidget {
+  const _MarkAdvanceButton({
+    required this.childId,
+    required this.seriesId,
+  });
+
+  final String childId;
+  final String seriesId;
+
+  @override
+  ConsumerState<_MarkAdvanceButton> createState() =>
+      _MarkAdvanceButtonState();
+}
+
+class _MarkAdvanceButtonState extends ConsumerState<_MarkAdvanceButton> {
+  bool _loading = false;
+
+  Future<void> _onTap() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      await showPaymentMethodDialog(
+        context,
+        onConfirm: (method, observation) async {
+          await ref
+              .read(childDetailsRepositoryProvider)
+              .markAdvancePayment(
+                childId: widget.childId,
+                seriesId: widget.seriesId,
+                // Existing convention (see CompletedCycleAccordion._confirm
+                // + payment_dialog.dart): dialog returns 'POS' / 'OP' but
+                // the repository writes the lower-case token so the cycle
+                // row matches the schema.
+                paymentMethod: method.toLowerCase(),
+                notes: observation ?? '',
+              );
+        },
+      );
+      // Local invalidation for instant feedback. Realtime
+      // rt:payment_cycles will fire from the RPC insert and re-cover
+      // the same providers a moment later — harmless overlap.
+      if (mounted) {
+        ref.invalidate(childPaymentCyclesNewProvider(widget.childId));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: _loading ? null : _onTap,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppColors.info,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+      icon: _loading
+          ? const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.credit_card_rounded, size: 14),
+      label: const Text(
+        'Marchează plătit',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
       ),
     );
   }
