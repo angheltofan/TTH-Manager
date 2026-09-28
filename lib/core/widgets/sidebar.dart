@@ -21,6 +21,11 @@ class AppSidebar extends StatelessWidget {
       path: '/children',
     ),
     SidebarNavItem(
+      icon: Icons.school_outlined,
+      label: 'Afterschool',
+      path: '/afterschool',
+    ),
+    SidebarNavItem(
       icon: Icons.auto_awesome_outlined,
       label: 'Asistent',
       path: '/assistant',

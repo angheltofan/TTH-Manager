@@ -7,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/supabase/supabase_client_provider.dart';
 import '../core/widgets/app_shell.dart';
+import '../features/afterschool/presentation/afterschool_program_detail_page.dart';
+import '../features/afterschool/presentation/afterschool_program_form_page.dart';
+import '../features/afterschool/presentation/afterschool_programs_page.dart';
 import '../features/auth/domain/app_profile.dart';
 import '../features/assistant/presentation/assistant_page.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
@@ -385,6 +388,27 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/team-chat',
             builder: (context, state) => const TeamChatPage(),
+          ),
+          GoRoute(
+            path: '/afterschool',
+            builder: (context, state) => const AfterschoolProgramsPage(),
+          ),
+          GoRoute(
+            path: '/afterschool/new',
+            builder: (context, state) =>
+                const AfterschoolProgramFormPage(),
+          ),
+          GoRoute(
+            path: '/afterschool/:id',
+            builder: (context, state) => AfterschoolProgramDetailPage(
+              programId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/afterschool/:id/edit',
+            builder: (context, state) => AfterschoolProgramFormPage(
+              programId: state.pathParameters['id'],
+            ),
           ),
         ],
       ),
