@@ -44,7 +44,7 @@ class AfterschoolProgramDetailPage extends ConsumerWidget {
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => context.canPop()
               ? context.pop()
-              : context.go('/afterschool'),
+              : context.go('/afterschool/programs'),
         ),
       ),
       body: programAsync.when(
@@ -196,7 +196,7 @@ class _Header extends ConsumerWidget {
                   icon: const Icon(Icons.edit_outlined, size: 16),
                   label: const Text('Editează'),
                   onPressed: () =>
-                      context.go('/afterschool/${program.id}/edit'),
+                      context.go('/afterschool/programs/${program.id}/edit'),
                 ),
             ]),
             const SizedBox(height: 14),

@@ -10,6 +10,8 @@ import '../core/widgets/app_shell.dart';
 import '../features/afterschool/presentation/afterschool_program_detail_page.dart';
 import '../features/afterschool/presentation/afterschool_program_form_page.dart';
 import '../features/afterschool/presentation/afterschool_programs_page.dart';
+import '../features/afterschool/presentation/afterschool_session_day_page.dart';
+import '../features/afterschool/presentation/afterschool_today_page.dart';
 import '../features/auth/domain/app_profile.dart';
 import '../features/assistant/presentation/assistant_page.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
@@ -389,25 +391,41 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/team-chat',
             builder: (context, state) => const TeamChatPage(),
           ),
+          // Phase 3: default landing is the daily operations page.
           GoRoute(
             path: '/afterschool',
+            redirect: (context, state) => '/afterschool/today',
+          ),
+          GoRoute(
+            path: '/afterschool/today',
+            builder: (context, state) => const AfterschoolTodayPage(),
+          ),
+          GoRoute(
+            path: '/afterschool/programs',
             builder: (context, state) => const AfterschoolProgramsPage(),
           ),
           GoRoute(
-            path: '/afterschool/new',
+            path: '/afterschool/programs/new',
             builder: (context, state) =>
                 const AfterschoolProgramFormPage(),
           ),
           GoRoute(
-            path: '/afterschool/:id',
+            path: '/afterschool/programs/:id',
             builder: (context, state) => AfterschoolProgramDetailPage(
               programId: state.pathParameters['id']!,
             ),
           ),
           GoRoute(
-            path: '/afterschool/:id/edit',
+            path: '/afterschool/programs/:id/edit',
             builder: (context, state) => AfterschoolProgramFormPage(
               programId: state.pathParameters['id'],
+            ),
+          ),
+          GoRoute(
+            path: '/afterschool/programs/:programId/day/:date',
+            builder: (context, state) => AfterschoolSessionDayPage(
+              programId: state.pathParameters['programId']!,
+              dateIso: state.pathParameters['date']!,
             ),
           ),
         ],

@@ -1,52 +1,25 @@
 import 'package:flutter/material.dart';
 
 import 'sidebar_base.dart';
+import 'staff_nav_items.dart';
 
 /// Staff left-rail sidebar. Thin wrapper over [AppSidebarBase] that
-/// supplies the primary "Dashboard / Copii / Asistent" group, a "CONT"
-/// section label, and "Setări" in the trailing group. Trainer
-/// administration moved from the sidebar to Setări → Echipa centrului.
+/// supplies the primary "Dashboard / Copii / Afterschool / Asistent"
+/// group, a "CONT" section label, and "Setări" in the trailing group.
+///
+/// Destinations live in [kStaffPrimaryNav] + [kStaffTrailingNav] so
+/// the mobile navigation drawer (in [AppShell]) can reuse them without
+/// keeping a parallel list.
 class AppSidebar extends StatelessWidget {
   const AppSidebar({super.key});
-
-  static const _primary = <SidebarNavItem>[
-    SidebarNavItem(
-      icon: Icons.space_dashboard_outlined,
-      label: 'Dashboard',
-      path: '/dashboard',
-    ),
-    SidebarNavItem(
-      icon: Icons.groups_outlined,
-      label: 'Copii',
-      path: '/children',
-    ),
-    SidebarNavItem(
-      icon: Icons.school_outlined,
-      label: 'Afterschool',
-      path: '/afterschool',
-    ),
-    SidebarNavItem(
-      icon: Icons.auto_awesome_outlined,
-      label: 'Asistent',
-      path: '/assistant',
-    ),
-  ];
-
-  static const _trailing = <SidebarNavItem>[
-    SidebarNavItem(
-      icon: Icons.tune_outlined,
-      label: 'Setări',
-      path: '/settings',
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
     return const AppSidebarBase(
       logoSubtitle: 'Tales & Tech HUB',
-      items: _primary,
+      items: kStaffPrimaryNav,
       sectionLabel: 'CONT',
-      trailingItems: _trailing,
+      trailingItems: kStaffTrailingNav,
     );
   }
 }

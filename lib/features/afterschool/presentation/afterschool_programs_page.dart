@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
@@ -30,7 +31,16 @@ class AfterschoolProgramsPage extends ConsumerWidget {
           return CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
-                child: _Header(isAdmin: isAdmin),
+                child: _Header(
+                  isAdmin: isAdmin,
+                  // Hide the global header CTA in the empty state on
+                  // mobile so it doesn't visually compete with the
+                  // "Creează program" CTA inside the empty card.
+                  showAddAction: !programsAsync.maybeWhen(
+                    data: (list) => list.isEmpty,
+                    orElse: () => false,
+                  ),
+                ),
               ),
               programsAsync.when(
                 loading: () => const SliverToBoxAdapter(
@@ -48,8 +58,10 @@ class AfterschoolProgramsPage extends ConsumerWidget {
                       child: _EmptyState(isAdmin: isAdmin),
                     );
                   }
+                  final horizontalPad = context.isMobile ? 16.0 : 24.0;
                   return SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    padding: EdgeInsets.fromLTRB(
+                        horizontalPad, 8, horizontalPad, 24),
                     sliver: SliverList.separated(
                       itemCount: programs.length,
                       separatorBuilder: (_, _) =>
@@ -71,47 +83,96 @@ class AfterschoolProgramsPage extends ConsumerWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.isAdmin});
+  const _Header({required this.isAdmin, this.showAddAction = true});
   final bool isAdmin;
+
+  /// Whether the "Adaugă program" primary action is rendered in the
+  /// header. The Astăzi-programs page hides it on the empty state so
+  /// the empty card's own CTA doesn't visually compete with a second
+  /// header CTA — see the [_EmptyState] widget below.
+  final bool showAddAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isMobile = context.isMobile;
+    final horizontalPad = isMobile ? 16.0 : 24.0;
+
+    final iconBadge = Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.purple.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.school_outlined,
+          color: AppColors.purple, size: 22),
+    );
+
+    final titleColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Afterschool',
+          style: theme.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w800),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Programe și copii înscriși',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.outline),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+
+    final action = (isAdmin && showAddAction)
+        ? AppPrimaryButton(
+            label: 'Adaugă program',
+            icon: Icons.add_rounded,
+            onPressed: () => context.go('/afterschool/programs/new'),
+          )
+        : null;
+
+    if (isMobile) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(horizontalPad, 20, horizontalPad, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                iconBadge,
+                const SizedBox(width: 12),
+                Expanded(child: titleColumn),
+              ],
+            ),
+            if (action != null) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: action,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+      padding: EdgeInsets.fromLTRB(horizontalPad, 24, horizontalPad, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.purple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.school_outlined,
-                color: AppColors.purple, size: 22),
-          ),
+          iconBadge,
           const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Afterschool',
-                    style: theme.textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 2),
-                Text('Programe și copii înscriși',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline)),
-              ],
-            ),
-          ),
-          if (isAdmin)
-            AppPrimaryButton(
-              label: 'Adaugă program',
-              icon: Icons.add_rounded,
-              onPressed: () => context.go('/afterschool/new'),
-            ),
+          Expanded(child: titleColumn),
+          ?action,
         ],
       ),
     );
@@ -125,10 +186,14 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isMobile = context.isMobile;
+    final outerPad = isMobile ? 16.0 : 24.0;
+    final innerPad = isMobile ? 20.0 : 28.0;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+      padding: EdgeInsets.fromLTRB(outerPad, 12, outerPad, 24),
       child: Container(
-        padding: const EdgeInsets.all(28),
+        padding: EdgeInsets.all(innerPad),
         decoration: BoxDecoration(
           color: theme.cardTheme.color,
           borderRadius: BorderRadius.circular(16),
@@ -143,7 +208,8 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text('Nu există încă programe Afterschool',
                 style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700)),
+                    ?.copyWith(fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center),
             const SizedBox(height: 6),
             Text(
               isAdmin
@@ -158,7 +224,7 @@ class _EmptyState extends StatelessWidget {
               AppPrimaryButton(
                 label: 'Creează program',
                 icon: Icons.add_rounded,
-                onPressed: () => context.go('/afterschool/new'),
+                onPressed: () => context.go('/afterschool/programs/new'),
               ),
             ],
           ],
@@ -180,7 +246,7 @@ class _ProgramRow extends ConsumerWidget {
         ref.watch(afterschoolActiveEnrollmentCountProvider(program.id));
 
     return InkWell(
-      onTap: () => context.go('/afterschool/${program.id}'),
+      onTap: () => context.go('/afterschool/programs/${program.id}'),
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
@@ -318,10 +384,10 @@ class _RowMenu extends ConsumerWidget {
       onSelected: (v) async {
         switch (v) {
           case 'open':
-            context.go('/afterschool/${program.id}');
+            context.go('/afterschool/programs/${program.id}');
             break;
           case 'edit':
-            context.go('/afterschool/${program.id}/edit');
+            context.go('/afterschool/programs/${program.id}/edit');
             break;
           case 'archive':
             await _confirmArchive(context, ref, program);

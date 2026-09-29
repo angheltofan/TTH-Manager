@@ -11,6 +11,7 @@ import '../../features/dashboard/providers/dashboard_providers.dart';
 import '../../features/demo_workshops/providers/demo_workshops_providers.dart';
 import '../../features/notifications/providers/notifications_providers.dart';
 import '../../features/payments_due/providers/payments_due_providers.dart';
+import '../../features/afterschool/providers/afterschool_providers.dart';
 import '../../features/workshops/providers/enrollment_providers.dart';
 import '../../features/workshops/providers/workshops_providers.dart';
 
@@ -379,6 +380,89 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
         if (kDebugMode) debugPrint('[RT] rt:demo_workshops → $status');
       });
 
+  // ── 9. afterschool_attendance ─────────────────────────────────────────────
+  //
+  // Phase 3: cross-device attendance sync for the Astăzi / session-day
+  // views. Since afterschool_attendance is scoped by session_id, we
+  // invalidate the session-scoped family entry AND the aggregate
+  // day-summary family. If we can't extract session_id we fall back to
+  // invalidating the whole family list.
+  final afsAttChannel = client
+      .channel('rt:afs_attendance')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'afterschool_attendance',
+        callback: (payload) {
+          final rec = _primaryRecord(payload);
+          final sessionId = _str(rec, 'session_id');
+          if (kDebugMode) {
+            debugPrint('[RT] afs_attendance → ${payload.eventType} session=$sessionId');
+          }
+          if (sessionId != null) {
+            ref.invalidate(afterschoolAttendanceForSessionProvider(sessionId));
+          } else {
+            // Fallback — invalidate every family instance.
+            ref.invalidate(afterschoolAttendanceForSessionProvider);
+          }
+          // The day summary depends on the attendance provider; invalidating
+          // the family means every watched (program, date) tile recomputes.
+          ref.invalidate(afterschoolDaySummaryProvider);
+        },
+      )
+      .subscribe((status, [error]) {
+        if (kDebugMode) debugPrint('[RT] rt:afs_attendance → $status');
+      });
+
+  // ── 10. afterschool_sessions ──────────────────────────────────────────────
+  //
+  // Close/reopen or the (rare) session-row updates should refresh both
+  // the by-date session view AND the day summary. All sessions are
+  // referenced by (program_id, session_date) — the two data points the
+  // day-key is built from.
+  final afsSessionsChannel = client
+      .channel('rt:afs_sessions')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'afterschool_sessions',
+        callback: (payload) {
+          if (kDebugMode) {
+            debugPrint('[RT] afs_sessions → ${payload.eventType}');
+          }
+          ref.invalidate(afterschoolSessionForDateProvider);
+          ref.invalidate(afterschoolDaySummaryProvider);
+        },
+      )
+      .subscribe((status, [error]) {
+        if (kDebugMode) debugPrint('[RT] rt:afs_sessions → $status');
+      });
+
+  // ── 11. afterschool_enrollments ───────────────────────────────────────────
+  //
+  // Enrollment changes (create, edit, end) affect who is expected on a
+  // given day AND the active-enrollments list rendered by the program
+  // detail page. Refresh every affected family + the day summary.
+  final afsEnrChannel = client
+      .channel('rt:afs_enrollments')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'afterschool_enrollments',
+        callback: (payload) {
+          if (kDebugMode) {
+            debugPrint('[RT] afs_enrollments → ${payload.eventType}');
+          }
+          ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider);
+          ref.invalidate(afterschoolActiveEnrollmentCountProvider);
+          ref.invalidate(afterschoolExpectedEnrollmentsForDateProvider);
+          ref.invalidate(afterschoolDaySummaryProvider);
+        },
+      )
+      .subscribe((status, [error]) {
+        if (kDebugMode) debugPrint('[RT] rt:afs_enrollments → $status');
+      });
+
   // ── Cleanup on dispose / logout ───────────────────────────────────────────
   ref.onDispose(() {
     if (kDebugMode) debugPrint('[RT] appRealtime: removing all channels');
@@ -390,5 +474,8 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
     client.removeChannel(payChannel);
     client.removeChannel(notifChannel);
     client.removeChannel(demoChannel);
+    client.removeChannel(afsAttChannel);
+    client.removeChannel(afsSessionsChannel);
+    client.removeChannel(afsEnrChannel);
   });
 });

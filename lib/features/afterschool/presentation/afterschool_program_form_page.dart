@@ -132,7 +132,7 @@ class _AfterschoolProgramFormPageState
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => context.canPop()
               ? context.pop()
-              : context.go('/afterschool'),
+              : context.go('/afterschool/programs'),
         ),
       ),
       body: SingleChildScrollView(
@@ -181,7 +181,7 @@ class _AfterschoolProgramFormPageState
                       onSave: () => _onSave(existing),
                       saveError: _saveError,
                       createLabel: 'Creează program',
-                      cancelFallbackRoute: '/afterschool',
+                      cancelFallbackRoute: '/afterschool/programs',
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -483,8 +483,8 @@ class _AfterschoolProgramFormPageState
         context.pop();
       } else {
         context.go(existing == null
-            ? '/afterschool'
-            : '/afterschool/${existing.id}');
+            ? '/afterschool/programs'
+            : '/afterschool/programs/${existing.id}');
       }
     } catch (e) {
       final raw = e.toString();
@@ -622,7 +622,7 @@ class _AccessDenied extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () => context.canPop()
               ? context.pop()
-              : context.go('/afterschool'),
+              : context.go('/afterschool/programs'),
         ),
       ),
       body: Center(
