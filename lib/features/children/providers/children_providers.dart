@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/supabase/supabase_client_provider.dart';
 import '../../../core/utils/weekday_utils.dart';
+import '../../afterschool/providers/afterschool_providers.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../trainers/providers/trainers_providers.dart';
 import '../data/child_attendance_repository.dart';
@@ -56,6 +57,21 @@ final filteredChildrenProvider =
   final workshopFilter = ref.watch(childrenWorkshopFilterProvider);
   final trainerFilter = ref.watch(childrenTrainerFilterProvider);
 
+  // Afterschool enrollments feed the "Programe" filter together with
+  // workshop series. One flat list, grouped by child_id.
+  final afsEnrollments =
+      ref.watch(afterschoolAllActiveEnrollmentsProvider).valueOrNull ??
+          const [];
+  final afsPrograms =
+      ref.watch(afterschoolAllProgramsProvider).valueOrNull ?? const [];
+  final afsProgramNameById = {for (final p in afsPrograms) p.id: p.name};
+  final afsNamesByChild = <String, Set<String>>{};
+  for (final e in afsEnrollments) {
+    final name = afsProgramNameById[e.programId];
+    if (name == null) continue;
+    afsNamesByChild.putIfAbsent(e.childId, () => <String>{}).add(name);
+  }
+
   return allAsync.whenData((list) {
     final filtered = list.where((c) {
       if (search.isNotEmpty) {
@@ -66,9 +82,12 @@ final filteredChildrenProvider =
       }
       if (activeFilter == 'active' && c.isActive != true) return false;
       if (activeFilter == 'inactive' && c.isActive == true) return false;
-      if (workshopFilter != null &&
-          !c.workshops.any((w) => w.title == workshopFilter)) {
-        return false;
+      if (workshopFilter != null) {
+        final inWorkshops =
+            c.workshops.any((w) => w.title == workshopFilter);
+        final inAfterschool =
+            (afsNamesByChild[c.id] ?? const <String>{}).contains(workshopFilter);
+        if (!inWorkshops && !inAfterschool) return false;
       }
       if (trainerFilter != null &&
           !c.workshops.any((w) => w.trainerId == trainerFilter)) {
@@ -81,11 +100,12 @@ final filteredChildrenProvider =
   });
 });
 
-// ── Derived: unique workshops for filter dropdown ────────────────────────────
-
-// Workshop options deduplicated by title, sorted by weekday order (Mon→Sun)
-// then start_time then title. Multiple scheduled rows can share the same title
-// (different weeks of the same recurring series). The key is the title itself.
+// ── Derived: unique programs for filter dropdown ─────────────────────────────
+//
+// Workshop series titles (sorted by weekday order) + Afterschool program
+// names. Both participate in the "Toate programele" filter so a child
+// enrolled only in Afterschool still shows up when filtered by that
+// program. The dropdown value equals the display label.
 final childrenWorkshopOptionsProvider =
     Provider<List<MapEntry<String, String>>>((ref) {
   final list = ref.watch(allChildrenProvider).valueOrNull ?? [];
@@ -116,7 +136,23 @@ final childrenWorkshopOptionsProvider =
       );
     });
 
-  return titles.map((t) => MapEntry(t, t)).toList();
+  final workshopEntries = titles.map((t) => MapEntry(t, t)).toList();
+
+  // Append Afterschool program names, alphabetically, deduplicated and
+  // excluding any name that already matches a workshop series (never
+  // happens in practice but defensive).
+  final existing = workshopEntries.map((e) => e.key).toSet();
+  final afsPrograms =
+      ref.watch(afterschoolAllProgramsProvider).valueOrNull ?? const [];
+  final afsNames = afsPrograms
+      .map((p) => p.name)
+      .where((n) => !existing.contains(n))
+      .toSet()
+      .toList()
+    ..sort();
+  final afsEntries = afsNames.map((n) => MapEntry(n, n)).toList();
+
+  return [...workshopEntries, ...afsEntries];
 });
 
 // ── Derived: trainer list for filter dropdown ─────────────────────────────────

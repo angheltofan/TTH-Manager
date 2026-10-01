@@ -30,6 +30,21 @@ is_active, notes, enrolled_by, created_at, updated_at
         .toList();
   }
 
+  /// All currently-active enrollments, across all programs. Used by
+  /// the global children list to render Afterschool badges alongside
+  /// workshop badges on each child row.
+  Future<List<AfterschoolEnrollment>> fetchAllActive() async {
+    final data = await _client
+        .from('afterschool_enrollments')
+        .select(_selectCols)
+        .eq('is_active', true)
+        .filter('enrolled_until', 'is', null);
+    return (data as List)
+        .map((e) =>
+            AfterschoolEnrollment.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<List<AfterschoolEnrollment>> fetchActiveForProgram(
       String programId) async {
     final data = await _client
@@ -65,6 +80,35 @@ is_active, notes, enrolled_by, created_at, updated_at
         .toList();
   }
 
+  /// Fetches every enrollment that overlaps ANY day of the given
+  /// (year, month) — i.e. `enrolled_from ≤ month_end AND
+  /// (enrolled_until IS NULL OR enrolled_until ≥ month_start)`.
+  ///
+  /// Used by the Phase 4 monthly-payments snapshot: a child is billed
+  /// for the month as long as their enrollment overlapped the month
+  /// AT ALL (no automatic proration).
+  Future<List<AfterschoolEnrollment>> fetchCoveringMonth({
+    required String programId,
+    required int year,
+    required int month,
+  }) async {
+    final monthStart = DateTime(year, month, 1);
+    final monthEnd = DateTime(year, month + 1, 0);
+    final startIso = _dateOnly(monthStart);
+    final endIso = _dateOnly(monthEnd);
+    final data = await _client
+        .from('afterschool_enrollments')
+        .select(_selectCols)
+        .eq('program_id', programId)
+        .eq('is_active', true)
+        .lte('enrolled_from', endIso)
+        .or('enrolled_until.is.null,enrolled_until.gte.$startIso');
+    return (data as List)
+        .map((e) =>
+            AfterschoolEnrollment.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Creates a new enrollment. Admin-only. Partial unique index
   /// `uq_afs_enr_active` prevents two active NULL-until rows per
   /// (child, program) simultaneously; a re-enrollment is legal after
@@ -85,7 +129,6 @@ is_active, notes, enrolled_by, created_at, updated_at
     required String childId,
     required String programId,
     required DateTime enrolledFrom,
-    double? customMonthlyFee,
     Set<int>? attendanceDays,
     String? expectedArrivalTime,
     String? notes,
@@ -100,7 +143,6 @@ is_active, notes, enrolled_by, created_at, updated_at
       'child_id': childId,
       'program_id': programId,
       'enrolled_from': _dateOnly(enrolledFrom),
-      'custom_monthly_fee': ?customMonthlyFee,
       if (attendanceDays != null)
         'attendance_days': (attendanceDays.toList()..sort()),
       if (expectedArrivalTime != null && expectedArrivalTime.trim().isNotEmpty)
@@ -115,22 +157,6 @@ is_active, notes, enrolled_by, created_at, updated_at
         .select(_selectCols)
         .single();
     return AfterschoolEnrollment.fromMap(inserted);
-  }
-
-  /// Updates the custom monthly fee (or clears it back to program
-  /// default when `customMonthlyFee == null`). Admin-only.
-  Future<void> updateCustomFee({
-    required bool isAdmin,
-    required String enrollmentId,
-    required double? customMonthlyFee,
-  }) async {
-    if (!isAdmin) {
-      throw StateError('Only admins may change enrollment fees');
-    }
-    await _client
-        .from('afterschool_enrollments')
-        .update({'custom_monthly_fee': customMonthlyFee})
-        .eq('id', enrollmentId);
   }
 
   /// Updates the per-child schedule. `attendanceDays = null` clears

@@ -17,7 +17,7 @@ class ChildrenTableHeader extends StatelessWidget {
         children: [
           const SizedBox(width: 48),
           Expanded(flex: 3, child: Text('NUME COPIL', style: style)),
-          Expanded(flex: 4, child: Text('ATELIERE', style: style)),
+          Expanded(flex: 4, child: Text('PROGRAME', style: style)),
           Expanded(flex: 2, child: Text('ULTIMA PREZENȚĂ', style: style)),
           SizedBox(width: 80, child: Text('STATUS', style: style)),
           const SizedBox(width: 80),

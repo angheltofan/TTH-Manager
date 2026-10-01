@@ -102,6 +102,7 @@ class _AttendancePaymentsSectionState
     );
   }
 
+
   bool _hasAnyDue(Map<String, SeriesFinancialSnapshot> snapshots) =>
       snapshots.values.any((s) => s.totalDue > 0);
 }

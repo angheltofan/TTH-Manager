@@ -408,6 +408,11 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           // The day summary depends on the attendance provider; invalidating
           // the family means every watched (program, date) tile recomputes.
           ref.invalidate(afterschoolDaySummaryProvider);
+          // Child-details Afterschool panel depends on the same
+          // attendance rows. We don't know which (child, program,
+          // year, month) is watched, so invalidate the whole family;
+          // Riverpod re-runs only the currently-mounted instances.
+          ref.invalidate(afterschoolMonthAttendanceProvider);
         },
       )
       .subscribe((status, [error]) {
@@ -432,6 +437,9 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           }
           ref.invalidate(afterschoolSessionForDateProvider);
           ref.invalidate(afterschoolDaySummaryProvider);
+          // New / closed / reopened sessions change which days are
+          // eligible in the child-details panel — invalidate family.
+          ref.invalidate(afterschoolMonthAttendanceProvider);
         },
       )
       .subscribe((status, [error]) {
@@ -442,7 +450,9 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
   //
   // Enrollment changes (create, edit, end) affect who is expected on a
   // given day AND the active-enrollments list rendered by the program
-  // detail page. Refresh every affected family + the day summary.
+  // detail page. Also affects the Phase-4 monthly financial snapshot
+  // (a new enrollment mid-month adds a new billable child; ending an
+  // enrollment removes future months from the covering-month set).
   final afsEnrChannel = client
       .channel('rt:afs_enrollments')
       .onPostgresChanges(
@@ -455,13 +465,29 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           }
           ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider);
           ref.invalidate(afterschoolActiveEnrollmentCountProvider);
+          ref.invalidate(afterschoolAllActiveEnrollmentsProvider);
           ref.invalidate(afterschoolExpectedEnrollmentsForDateProvider);
           ref.invalidate(afterschoolDaySummaryProvider);
+          // Child-details Afterschool panel: enrolments drive both
+          // the left-column card list AND the per-month expected
+          // denominator, so invalidate both families.
+          final childId = _str(_primaryRecord(payload), 'child_id');
+          if (childId != null) {
+            ref.invalidate(afterschoolEnrollmentsForChildProvider(childId));
+          } else {
+            ref.invalidate(afterschoolEnrollmentsForChildProvider);
+          }
+          ref.invalidate(afterschoolMonthAttendanceProvider);
         },
       )
       .subscribe((status, [error]) {
         if (kDebugMode) debugPrint('[RT] rt:afs_enrollments → $status');
       });
+
+  // No realtime channel for `afterschool_monthly_payments` — the
+  // approved product has no Afterschool payment UX; the table remains
+  // in the DB as a dormant artifact of earlier phases but is never
+  // read by live client code.
 
   // ── Cleanup on dispose / logout ───────────────────────────────────────────
   ref.onDispose(() {

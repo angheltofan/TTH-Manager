@@ -4,11 +4,11 @@ import '../../../core/supabase/supabase_client_provider.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../data/afterschool_attendance_repository.dart';
 import '../data/afterschool_enrollments_repository.dart';
-import '../data/afterschool_payments_repository.dart';
 import '../data/afterschool_programs_repository.dart';
 import '../data/afterschool_sessions_repository.dart';
 import '../domain/afterschool_attendance.dart';
 import '../domain/afterschool_enrollment.dart';
+import '../domain/afterschool_month_attendance.dart';
 import '../domain/afterschool_program.dart';
 import '../domain/afterschool_session.dart';
 
@@ -34,11 +34,6 @@ final afterschoolAttendanceRepositoryProvider =
     Provider<AfterschoolAttendanceRepository>((ref) {
   return AfterschoolAttendanceRepository(
       ref.watch(supabaseClientProvider));
-});
-
-final afterschoolPaymentsRepositoryProvider =
-    Provider<AfterschoolPaymentsRepository>((ref) {
-  return AfterschoolPaymentsRepository(ref.watch(supabaseClientProvider));
 });
 
 /// ── UI-facing providers (Phase 2) ────────────────────────────────────
@@ -70,6 +65,15 @@ final afterschoolProgramByIdProvider =
     FutureProvider.family<AfterschoolProgram?, String>((ref, id) async {
   final repo = ref.watch(afterschoolProgramsRepositoryProvider);
   return repo.fetchById(id);
+});
+
+/// All active Afterschool enrollments (every child × every program).
+/// Used by the global children list to render Afterschool program
+/// badges alongside workshop badges. One query, grouped client-side.
+final afterschoolAllActiveEnrollmentsProvider =
+    FutureProvider<List<AfterschoolEnrollment>>((ref) async {
+  final repo = ref.watch(afterschoolEnrollmentsRepositoryProvider);
+  return repo.fetchAllActive();
 });
 
 /// Currently-active enrollments for one program (no `enrolled_until`,
@@ -297,4 +301,103 @@ final afterschoolDaySummaryProvider =
 final currentUserIdProvider = Provider<String>((ref) {
   final profile = ref.watch(currentProfileProvider).valueOrNull;
   return profile?.id ?? '';
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Child-scoped Afterschool providers used by the child profile.
+// Attendance-only; the Afterschool product on the child profile has
+// no payment surface.
+// ═════════════════════════════════════════════════════════════════════
+
+/// Every Afterschool enrollment row for one child, across every
+/// program the child has ever been in. Ordered newest first (matches
+/// [AfterschoolEnrollmentsRepository.fetchForChild] which orders by
+/// `enrolled_from DESC`).
+final afterschoolEnrollmentsForChildProvider =
+    FutureProvider.family<List<AfterschoolEnrollment>, String>(
+        (ref, childId) async {
+  final repo = ref.watch(afterschoolEnrollmentsRepositoryProvider);
+  return repo.fetchForChild(childId);
+});
+
+/// Family key for the per-(child, program, year, month) attendance
+/// snapshot. Immutable value with structural equality so `.family`
+/// deduplicates instances the same way the other Afterschool keys do.
+class AfterschoolChildMonthKey {
+  const AfterschoolChildMonthKey({
+    required this.childId,
+    required this.programId,
+    required this.year,
+    required this.month,
+  });
+
+  final String childId;
+  final String programId;
+  final int year;
+  final int month;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AfterschoolChildMonthKey &&
+          other.childId == childId &&
+          other.programId == programId &&
+          other.year == year &&
+          other.month == month);
+
+  @override
+  int get hashCode => Object.hash(childId, programId, year, month);
+
+  @override
+  String toString() =>
+      'AfterschoolChildMonthKey($childId, $programId, '
+      '${year.toString().padLeft(4, '0')}-'
+      '${month.toString().padLeft(2, '0')})';
+}
+
+/// The per-(child, program, year, month) attendance snapshot used by
+/// the Child Details "Afterschool" panel. Composes:
+///
+///   • the program row (needed for `daysOfWeek` + active window);
+///   • every enrollment for the child (any state — historical rows
+///     still contribute to past-month attendance);
+///   • every session for the program in the target month;
+///   • every attendance row for the child in those sessions.
+///
+/// Runs [computeAfterschoolMonthAttendance] on the result. Returns
+/// `null` when the program row can't be resolved — the UI shows an
+/// empty state in that case.
+final afterschoolMonthAttendanceProvider = FutureProvider.family<
+    AfterschoolMonthAttendance?, AfterschoolChildMonthKey>((ref, key) async {
+  final program =
+      await ref.watch(afterschoolProgramByIdProvider(key.programId).future);
+  if (program == null) return null;
+
+  // All enrollments for the child (repository already scopes by
+  // child_id). Filter to this program client-side — cheap.
+  final enrollments =
+      await ref.watch(afterschoolEnrollmentsForChildProvider(key.childId).future);
+  final forProgram =
+      enrollments.where((e) => e.programId == key.programId).toList();
+
+  final sessionsRepo = ref.watch(afterschoolSessionsRepositoryProvider);
+  final sessions = await sessionsRepo.fetchForMonth(
+      programId: key.programId, year: key.year, month: key.month);
+
+  final attendanceRepo = ref.watch(afterschoolAttendanceRepositoryProvider);
+  final attendance = await attendanceRepo.fetchForChildInSessions(
+    childId: key.childId,
+    sessionIds: sessions.map((s) => s.id).toList(),
+  );
+
+  return computeAfterschoolMonthAttendance(
+    childId: key.childId,
+    program: program,
+    year: key.year,
+    month: key.month,
+    enrollments: forProgram,
+    sessionsInMonth: sessions,
+    attendance: attendance,
+    today: DateTime.now(),
+  );
 });

@@ -6,6 +6,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../core/utils/workshop_type_helper.dart';
 import '../../../../core/widgets/initials_avatar.dart';
+import '../../../afterschool/providers/afterschool_providers.dart';
 import '../../domain/child_row.dart';
 import '../../domain/child_workshop_summary.dart';
 import '../../providers/children_providers.dart';
@@ -211,7 +212,7 @@ class _WideRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(flex: 3, child: Text(child.fullName, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          Expanded(flex: 4, child: _WorkshopBadgeRow(workshops: child.workshops)),
+          Expanded(flex: 4, child: _WorkshopBadgeRow(childId: child.id, workshops: child.workshops)),
           Expanded(flex: 2, child: child.lastAttDate != null
             ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(formatDate(child.lastAttDate!), style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
@@ -276,7 +277,8 @@ class _NarrowCard extends StatelessWidget {
             Expanded(child: Text(child.fullName, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
             _ActiveBadge(isActive: child.isActive),
           ]),
-          if (child.workshops.isNotEmpty) ...[const SizedBox(height: 8), _WorkshopBadgeRow(workshops: child.workshops)],
+          const SizedBox(height: 8),
+          _WorkshopBadgeRow(childId: child.id, workshops: child.workshops),
           if (child.lastAttDate != null) ...[
             const SizedBox(height: 6),
             Row(children: [
@@ -434,16 +436,42 @@ class _ChildActionsMenu extends StatelessWidget {
 
 // ── Shared small widgets ──────────────────────────────────────────────────────
 
-class _WorkshopBadgeRow extends StatelessWidget {
-  const _WorkshopBadgeRow({required this.workshops});
+class _WorkshopBadgeRow extends ConsumerWidget {
+  const _WorkshopBadgeRow({required this.childId, required this.workshops});
+  final String childId;
   final List<ChildWorkshopSummary> workshops;
 
   @override
-  Widget build(BuildContext context) {
-    if (workshops.isEmpty) return const SizedBox.shrink();
-    final extra = workshops.length - 1;
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Afterschool program names for THIS child. Reads the global flat
+    // active-enrollments provider + the all-programs provider so the
+    // children page uses two network reads total for all rows.
+    final afsEnrollments =
+        ref.watch(afterschoolAllActiveEnrollmentsProvider).valueOrNull ??
+            const [];
+    final afsPrograms =
+        ref.watch(afterschoolAllProgramsProvider).valueOrNull ?? const [];
+    final afsProgramNameById = {for (final p in afsPrograms) p.id: p.name};
+    final afsNames = <String>[
+      for (final e in afsEnrollments)
+        if (e.childId == childId && afsProgramNameById[e.programId] != null)
+          afsProgramNameById[e.programId]!,
+    ];
+
+    final total = workshops.length + afsNames.length;
+    if (total == 0) return const SizedBox.shrink();
+
+    // Show the first badge (workshop first, Afterschool fallback) +
+    // "+N" chip for the rest. Keeps row height stable.
+    final Widget firstBadge;
+    if (workshops.isNotEmpty) {
+      firstBadge = _WorkshopBadge(workshop: workshops.first);
+    } else {
+      firstBadge = _AfterschoolBadge(name: afsNames.first);
+    }
+    final extra = total - 1;
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      Flexible(child: _WorkshopBadge(workshop: workshops.first)),
+      Flexible(child: firstBadge),
       if (extra > 0) ...[
         const SizedBox(width: 4),
         Container(
@@ -453,6 +481,34 @@ class _WorkshopBadgeRow extends StatelessWidget {
         ),
       ],
     ]);
+  }
+}
+
+class _AfterschoolBadge extends StatelessWidget {
+  const _AfterschoolBadge({required this.name});
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 160),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.purple.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.purple.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: AppColors.purple,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }
 

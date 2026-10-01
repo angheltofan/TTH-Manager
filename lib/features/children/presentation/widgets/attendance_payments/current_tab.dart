@@ -4,15 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../../core/theme/app_theme.dart';
 import '../../../../../core/utils/date_utils.dart';
 import '../../../../../core/utils/responsive.dart';
+import '../../../../afterschool/domain/afterschool_program.dart';
+import '../../../../afterschool/providers/afterschool_providers.dart';
 import '../../../../auth/providers/auth_providers.dart';
 import '../../../providers/child_details_providers.dart';
 import '../payment_dialog.dart';
+import 'afterschool_child_detail_pane.dart';
+import 'afterschool_child_selector_card.dart';
 import 'attendance_timeline.dart';
 import 'series_snapshot.dart';
 
-/// The default tab: left-column selector of series + right-column detail
-/// showing the current cycle progress, its chronological timeline, and
-/// an accordion of completed cycles for the same series.
+/// The default tab: left-column selector of the child's programs
+/// (workshop series AND Afterschool programs) + right-column detail
+/// pane.
 ///
 /// Layout:
 ///   • desktop (≥900px): 2-column, 320px selector + Expanded detail
@@ -32,12 +36,62 @@ class CurrentTab extends ConsumerStatefulWidget {
   ConsumerState<CurrentTab> createState() => _CurrentTabState();
 }
 
+/// Tagged selection so the "right pane" knows which kind of item to
+/// render without leaking string-key conventions across widgets.
+sealed class _Selection {
+  const _Selection();
+  String get key;
+}
+
+class _WorkshopSelection extends _Selection {
+  const _WorkshopSelection(this.seriesId);
+  final String seriesId;
+  @override
+  String get key => 'ws:$seriesId';
+}
+
+class _AfterschoolSelection extends _Selection {
+  const _AfterschoolSelection(this.programId);
+  final String programId;
+  @override
+  String get key => 'afs:$programId';
+}
+
 class _CurrentTabState extends ConsumerState<CurrentTab> {
-  String? _selectedSeriesId;
+  _Selection? _selected;
+  int? _viewedYear;
+  int? _viewedMonth;
 
   @override
   Widget build(BuildContext context) {
-    if (widget.snapshots.isEmpty) {
+    final now = DateTime.now();
+    _viewedYear ??= now.year;
+    _viewedMonth ??= now.month;
+
+    final workshopItems = widget.snapshots.values.toList()
+      ..sort((a, b) => a.seriesTitle.compareTo(b.seriesTitle));
+
+    // Afterschool programs the child is enrolled in (any state — an
+    // ended enrollment still shows for historical context).
+    final enrollmentsAsync =
+        ref.watch(afterschoolEnrollmentsForChildProvider(widget.childId));
+    final programsAsync = ref.watch(afterschoolAllProgramsProvider);
+    final afterschoolPrograms = _resolveAfterschoolPrograms(
+      enrollmentsAsync.valueOrNull ?? const [],
+      programsAsync.valueOrNull ?? const [],
+    );
+
+    // Pick a default selection: workshop series first, otherwise first
+    // Afterschool program.
+    if (_selected == null) {
+      if (workshopItems.isNotEmpty) {
+        _selected = _WorkshopSelection(workshopItems.first.seriesId);
+      } else if (afterschoolPrograms.isNotEmpty) {
+        _selected = _AfterschoolSelection(afterschoolPrograms.first.id);
+      }
+    }
+
+    if (workshopItems.isEmpty && afterschoolPrograms.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Center(
@@ -49,72 +103,131 @@ class _CurrentTabState extends ConsumerState<CurrentTab> {
       );
     }
 
-    final ordered = widget.snapshots.values.toList()
-      ..sort((a, b) => a.seriesTitle.compareTo(b.seriesTitle));
-    _selectedSeriesId ??= ordered.first.seriesId;
-    final selected =
-        widget.snapshots[_selectedSeriesId] ?? ordered.first;
-
     final width = MediaQuery.of(context).size.width;
     if (width >= 900) {
-      return _buildTwoColumn(ordered, selected);
+      return _buildTwoColumn(workshopItems, afterschoolPrograms);
     }
     if (context.isMobile) {
-      return _buildMobile(ordered, selected);
+      return _buildMobile(workshopItems, afterschoolPrograms);
     }
-    return _buildTablet(ordered, selected);
+    return _buildTablet(workshopItems, afterschoolPrograms);
+  }
+
+  List<AfterschoolProgram> _resolveAfterschoolPrograms(
+    List<dynamic> enrollments,
+    List<AfterschoolProgram> allPrograms,
+  ) {
+    if (enrollments.isEmpty || allPrograms.isEmpty) return const [];
+    final programIds = <String>{
+      for (final e in enrollments) e.programId as String,
+    };
+    final byId = {for (final p in allPrograms) p.id: p};
+    final resolved = <AfterschoolProgram>[
+      for (final id in programIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+    resolved.sort((a, b) => a.name.compareTo(b.name));
+    return resolved;
+  }
+
+  void _onSelect(_Selection s) => setState(() => _selected = s);
+
+  Widget _rightPane(
+      List<SeriesFinancialSnapshot> workshops,
+      List<AfterschoolProgram> afterschool) {
+    final sel = _selected;
+    if (sel is _AfterschoolSelection) {
+      final program = afterschool.firstWhere(
+        (p) => p.id == sel.programId,
+        orElse: () => afterschool.first,
+      );
+      final childRow = ref.watch(childByIdProvider(widget.childId)).valueOrNull;
+      final childName = childRow?.fullName ?? widget.childId;
+      return AfterschoolChildDetailPane(
+        // Key on program so switching resets local state cleanly.
+        key: ValueKey('afs-detail-${program.id}'),
+        childId: widget.childId,
+        childName: childName,
+        program: program,
+        initialYear: _viewedYear!,
+        initialMonth: _viewedMonth!,
+        onMonthChanged: (y, m) {
+          _viewedYear = y;
+          _viewedMonth = m;
+        },
+      );
+    }
+    // Fallback / workshop:
+    if (sel is _WorkshopSelection && workshops.isNotEmpty) {
+      final snap = widget.snapshots[sel.seriesId] ?? workshops.first;
+      return _DetailPane(childId: widget.childId, snapshot: snap);
+    }
+    if (workshops.isNotEmpty) {
+      return _DetailPane(childId: widget.childId, snapshot: workshops.first);
+    }
+    // Shouldn't reach here — we returned early on empty state above.
+    return const SizedBox.shrink();
   }
 
   Widget _buildTwoColumn(
-      List<SeriesFinancialSnapshot> ordered, SeriesFinancialSnapshot sel) {
+      List<SeriesFinancialSnapshot> workshops,
+      List<AfterschoolProgram> afterschool) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
           width: 320,
           child: _SelectorList(
-            snapshots: ordered,
-            selectedId: sel.seriesId,
-            onSelect: (id) => setState(() => _selectedSeriesId = id),
+            childId: widget.childId,
+            workshops: workshops,
+            afterschool: afterschool,
+            selection: _selected,
+            viewedYear: _viewedYear!,
+            viewedMonth: _viewedMonth!,
+            onSelect: _onSelect,
           ),
         ),
         const SizedBox(width: 16),
-        Expanded(child: _DetailPane(childId: widget.childId, snapshot: sel)),
+        Expanded(child: _rightPane(workshops, afterschool)),
       ],
     );
   }
 
   Widget _buildTablet(
-      List<SeriesFinancialSnapshot> ordered, SeriesFinancialSnapshot sel) {
+      List<SeriesFinancialSnapshot> workshops,
+      List<AfterschoolProgram> afterschool) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
           height: 68,
           child: _ChipSelector(
-            snapshots: ordered,
-            selectedId: sel.seriesId,
-            onSelect: (id) => setState(() => _selectedSeriesId = id),
+            workshops: workshops,
+            afterschool: afterschool,
+            selection: _selected,
+            onSelect: _onSelect,
           ),
         ),
         const SizedBox(height: 12),
-        _DetailPane(childId: widget.childId, snapshot: sel),
+        _rightPane(workshops, afterschool),
       ],
     );
   }
 
   Widget _buildMobile(
-      List<SeriesFinancialSnapshot> ordered, SeriesFinancialSnapshot sel) {
+      List<SeriesFinancialSnapshot> workshops,
+      List<AfterschoolProgram> afterschool) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _DropdownSelector(
-          snapshots: ordered,
-          selectedId: sel.seriesId,
-          onSelect: (id) => setState(() => _selectedSeriesId = id),
+          workshops: workshops,
+          afterschool: afterschool,
+          selection: _selected,
+          onSelect: _onSelect,
         ),
         const SizedBox(height: 12),
-        _DetailPane(childId: widget.childId, snapshot: sel),
+        _rightPane(workshops, afterschool),
       ],
     );
   }
@@ -124,25 +237,46 @@ class _CurrentTabState extends ConsumerState<CurrentTab> {
 
 class _SelectorList extends StatelessWidget {
   const _SelectorList({
-    required this.snapshots,
-    required this.selectedId,
+    required this.childId,
+    required this.workshops,
+    required this.afterschool,
+    required this.selection,
+    required this.viewedYear,
+    required this.viewedMonth,
     required this.onSelect,
   });
 
-  final List<SeriesFinancialSnapshot> snapshots;
-  final String selectedId;
-  final ValueChanged<String> onSelect;
+  final String childId;
+  final List<SeriesFinancialSnapshot> workshops;
+  final List<AfterschoolProgram> afterschool;
+  final _Selection? selection;
+  final int viewedYear;
+  final int viewedMonth;
+  final ValueChanged<_Selection> onSelect;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final s in snapshots) ...[
+        for (final s in workshops) ...[
           _SelectorCard(
             snapshot: s,
-            selected: s.seriesId == selectedId,
-            onTap: () => onSelect(s.seriesId),
+            selected: selection is _WorkshopSelection &&
+                (selection as _WorkshopSelection).seriesId == s.seriesId,
+            onTap: () => onSelect(_WorkshopSelection(s.seriesId)),
+          ),
+          const SizedBox(height: 8),
+        ],
+        for (final p in afterschool) ...[
+          AfterschoolChildSelectorCard(
+            childId: childId,
+            program: p,
+            viewedYear: viewedYear,
+            viewedMonth: viewedMonth,
+            selected: selection is _AfterschoolSelection &&
+                (selection as _AfterschoolSelection).programId == p.id,
+            onTap: () => onSelect(_AfterschoolSelection(p.id)),
           ),
           const SizedBox(height: 8),
         ],
@@ -151,6 +285,9 @@ class _SelectorList extends StatelessWidget {
   }
 }
 
+// Workshop selector card — kept identical to the pre-integration
+// version; the shared SelectorCardShell will be adopted here in a
+// later cleanup pass. Marking it deprecated for internal traceability.
 class _SelectorCard extends StatelessWidget {
   const _SelectorCard({
     required this.snapshot,
@@ -255,29 +392,50 @@ class _SelectorCard extends StatelessWidget {
 
 class _ChipSelector extends StatelessWidget {
   const _ChipSelector({
-    required this.snapshots,
-    required this.selectedId,
+    required this.workshops,
+    required this.afterschool,
+    required this.selection,
     required this.onSelect,
   });
 
-  final List<SeriesFinancialSnapshot> snapshots;
-  final String selectedId;
-  final ValueChanged<String> onSelect;
+  final List<SeriesFinancialSnapshot> workshops;
+  final List<AfterschoolProgram> afterschool;
+  final _Selection? selection;
+  final ValueChanged<_Selection> onSelect;
 
   @override
   Widget build(BuildContext context) {
+    final total = workshops.length + afterschool.length;
     return ListView.separated(
       scrollDirection: Axis.horizontal,
-      itemCount: snapshots.length,
+      itemCount: total,
       separatorBuilder: (_, _) => const SizedBox(width: 8),
       itemBuilder: (context, i) {
-        final s = snapshots[i];
-        final selected = s.seriesId == selectedId;
+        if (i < workshops.length) {
+          final s = workshops[i];
+          final selected = selection is _WorkshopSelection &&
+              (selection as _WorkshopSelection).seriesId == s.seriesId;
+          return ChoiceChip(
+            selected: selected,
+            onSelected: (_) => onSelect(_WorkshopSelection(s.seriesId)),
+            label: Text(
+              '${s.seriesTitle} · ${s.currentPresentCount}/4',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : null,
+              ),
+            ),
+            selectedColor: AppColors.purple,
+          );
+        }
+        final p = afterschool[i - workshops.length];
+        final selected = selection is _AfterschoolSelection &&
+            (selection as _AfterschoolSelection).programId == p.id;
         return ChoiceChip(
           selected: selected,
-          onSelected: (_) => onSelect(s.seriesId),
+          onSelected: (_) => onSelect(_AfterschoolSelection(p.id)),
           label: Text(
-            '${s.seriesTitle} · ${s.currentPresentCount}/4',
+            '${p.name} · Afterschool',
             style: TextStyle(
               fontWeight: FontWeight.w700,
               color: selected ? Colors.white : null,
@@ -294,43 +452,58 @@ class _ChipSelector extends StatelessWidget {
 
 class _DropdownSelector extends StatelessWidget {
   const _DropdownSelector({
-    required this.snapshots,
-    required this.selectedId,
+    required this.workshops,
+    required this.afterschool,
+    required this.selection,
     required this.onSelect,
   });
 
-  final List<SeriesFinancialSnapshot> snapshots;
-  final String selectedId;
-  final ValueChanged<String> onSelect;
+  final List<SeriesFinancialSnapshot> workshops;
+  final List<AfterschoolProgram> afterschool;
+  final _Selection? selection;
+  final ValueChanged<_Selection> onSelect;
 
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
-      initialValue: selectedId,
+      initialValue: selection?.key,
       isExpanded: true,
       decoration: const InputDecoration(
-        labelText: 'Selectează atelier',
+        labelText: 'Selectează program',
         border: OutlineInputBorder(),
         isDense: true,
       ),
       items: [
-        for (final s in snapshots)
+        for (final s in workshops)
           DropdownMenuItem(
-            value: s.seriesId,
+            value: 'ws:${s.seriesId}',
             child: Text(
               '${s.seriesTitle} · ${s.currentPresentCount}/4',
               overflow: TextOverflow.ellipsis,
             ),
           ),
+        for (final p in afterschool)
+          DropdownMenuItem(
+            value: 'afs:${p.id}',
+            child: Text(
+              '${p.name} · Afterschool',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
       ],
       onChanged: (v) {
-        if (v != null) onSelect(v);
+        if (v == null) return;
+        if (v.startsWith('ws:')) {
+          onSelect(_WorkshopSelection(v.substring(3)));
+        } else if (v.startsWith('afs:')) {
+          onSelect(_AfterschoolSelection(v.substring(4)));
+        }
       },
     );
   }
 }
 
-// ── RIGHT COLUMN: detail pane ─────────────────────────────────────────
+// ── RIGHT COLUMN: detail pane (WORKSHOP) ──────────────────────────────
 
 class _DetailPane extends ConsumerWidget {
   const _DetailPane({required this.childId, required this.snapshot});

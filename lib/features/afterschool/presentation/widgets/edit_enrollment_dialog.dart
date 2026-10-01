@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -10,7 +9,10 @@ import '../../domain/afterschool_program.dart';
 import '../../providers/afterschool_providers.dart';
 import 'weekday_multi_selector.dart';
 
-/// Edit an enrollment's schedule / arrival time / custom fee. Admin-only.
+/// Edit an enrollment's schedule / arrival time. Admin-only.
+/// Custom monthly fee is intentionally NOT edited here — financial
+/// management for Afterschool happens exclusively in the child
+/// profile, next to the payment history.
 /// The three fields are independent — the dialog lets an admin change
 /// any subset without re-entering the whole row.
 Future<void> showEditEnrollmentDialog({
@@ -48,7 +50,6 @@ class _EditDialogState extends ConsumerState<_EditDialog> {
   late bool _followsAllDays;
   late Set<int> _pickedDays;
   TimeOfDay? _arrival;
-  final _feeCtrl = TextEditingController();
   bool _saving = false;
   String? _err;
 
@@ -61,15 +62,6 @@ class _EditDialogState extends ConsumerState<_EditDialog> {
     if (e.expectedArrivalTime != null) {
       _arrival = _parseTod(e.expectedArrivalTime!);
     }
-    if (e.customMonthlyFee != null) {
-      _feeCtrl.text = _fmtFee(e.customMonthlyFee!);
-    }
-  }
-
-  @override
-  void dispose() {
-    _feeCtrl.dispose();
-    super.dispose();
   }
 
   @override
@@ -157,22 +149,6 @@ class _EditDialogState extends ConsumerState<_EditDialog> {
                     ),
                 ]),
               ),
-              const SizedBox(height: 12),
-              ChildFormField(
-                label: 'Tarif personalizat (opțional)',
-                child: TextFormField(
-                  controller: _feeCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-                  ],
-                  decoration: buildChildFormInputDeco(theme).copyWith(
-                    hintText:
-                        'Lăsat gol → ${_fmtFee(widget.program.monthlyFee)} ${widget.program.currency}/lună',
-                  ),
-                ),
-              ),
               if (_err != null) ...[
                 const SizedBox(height: 10),
                 Text(_err!,
@@ -248,22 +224,10 @@ class _EditDialogState extends ConsumerState<_EditDialog> {
             expectedArrivalTime: wantsArrival);
       }
 
-      final feeText = _feeCtrl.text.trim();
-      final wantsFee = feeText.isEmpty ? null : _parseNum(feeText);
-      if (feeText.isNotEmpty && (wantsFee == null || wantsFee <= 0)) {
-        setState(() {
-          _err = 'Tarif invalid';
-          _saving = false;
-        });
-        return;
-      }
-      final currentFee = e.customMonthlyFee;
-      if ((wantsFee ?? -1) != (currentFee ?? -1)) {
-        await repo.updateCustomFee(
-            isAdmin: true,
-            enrollmentId: e.id,
-            customMonthlyFee: wantsFee);
-      }
+      // Custom fee is intentionally NOT edited from the operational
+      // dialog — financial changes happen in the child profile where
+      // they are visible alongside the payment history. The DB column
+      // `custom_monthly_fee` stays as-is on the enrollment row.
 
       ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider(
           widget.program.id));
@@ -297,18 +261,6 @@ String? _normalizeTime(String? t) {
   final parts = t.split(':');
   if (parts.length < 2) return t;
   return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
-}
-
-double? _parseNum(String? v) {
-  if (v == null) return null;
-  final t = v.trim().replaceAll(',', '.');
-  if (t.isEmpty) return null;
-  return double.tryParse(t);
-}
-
-String _fmtFee(double v) {
-  if (v == v.roundToDouble()) return v.toStringAsFixed(0);
-  return v.toStringAsFixed(2);
 }
 
 String _prettyError(String raw) {

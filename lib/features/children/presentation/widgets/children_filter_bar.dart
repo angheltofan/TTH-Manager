@@ -69,9 +69,9 @@ class ChildrenFilterBar extends ConsumerWidget {
       key: ValueKey('filter-workshop-$currentWorkshop'),
       initialValue: currentWorkshop,
       isExpanded: true,
-      decoration: dropDeco.copyWith(hintText: 'Toate atelierele'),
+      decoration: dropDeco.copyWith(hintText: 'Toate programele'),
       items: [
-        const DropdownMenuItem(value: null, child: Text('Toate atelierele')),
+        const DropdownMenuItem(value: null, child: Text('Toate programele')),
         ...workshopOptions.map(
             (e) => DropdownMenuItem(value: e.key, child: Text(e.value))),
       ],

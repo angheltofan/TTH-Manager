@@ -5,14 +5,20 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/error_state.dart';
+import '../../../afterschool/domain/afterschool_program.dart';
+import '../../../afterschool/providers/afterschool_providers.dart';
 import '../../../auth/providers/auth_providers.dart';
 import '../../../workshops/domain/workshop_series.dart';
 import '../../../workshops/providers/enrollment_providers.dart';
 import 'add_to_workshop_dialog.dart';
 import 'details_section_card.dart';
 
-/// Shows the workshop series a child is enrolled in.
-/// Admin can add or remove workshops.
+/// Lists every program the child participates in — workshops AND
+/// Afterschool programs. Keeps the single card chrome from the
+/// previous "Atelierul la care vine" (same icon + title style);
+/// workshop rows retain their exact behaviour (unchanged), Afterschool
+/// rows are rendered inline below so admins see both types in one
+/// place.
 class AssignedWorkshopsCard extends ConsumerWidget {
   const AssignedWorkshopsCard({super.key, required this.childId});
 
@@ -21,6 +27,9 @@ class AssignedWorkshopsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final seriesAsync = ref.watch(childWorkshopSeriesProvider(childId));
+    final afsEnrollmentsAsync =
+        ref.watch(afterschoolEnrollmentsForChildProvider(childId));
+    final afsProgramsAsync = ref.watch(afterschoolAllProgramsProvider);
     final isAdmin =
         ref.watch(currentProfileProvider).valueOrNull?.isAdmin ?? false;
     final theme = Theme.of(context);
@@ -40,8 +49,28 @@ class AssignedWorkshopsCard extends ConsumerWidget {
           )
         : null;
 
+    // Resolve the (program, enrollment) pairs the child is currently
+    // ACTIVE in. We filter to active + enrolled_until-null so a child
+    // whose Afterschool enrolment ended doesn't show as still
+    // participating; historical months remain visible in the "Istoric
+    // cicluri" tab.
+    final allAfsPrograms = afsProgramsAsync.valueOrNull ?? const [];
+    final programsById = {for (final p in allAfsPrograms) p.id: p};
+    final activeAfsEnrollments =
+        (afsEnrollmentsAsync.valueOrNull ?? const [])
+            .where((e) => e.isActive && e.enrolledUntil == null)
+            .toList();
+    final afsPairs = <_AfterschoolPair>[
+      for (final e in activeAfsEnrollments)
+        if (programsById[e.programId] != null)
+          _AfterschoolPair(
+            program: programsById[e.programId]!,
+            enrollmentId: e.id,
+          ),
+    ]..sort((a, b) => a.program.name.compareTo(b.program.name));
+
     return DetailsSectionCard(
-      title: 'Atelierul la care vine',
+      title: 'Programele la care participă',
       iconData: Icons.school_rounded,
       iconColor: const Color(0xFF8B5CF6),
       trailing: trailing,
@@ -56,26 +85,32 @@ class AssignedWorkshopsCard extends ConsumerWidget {
                       CircularProgressIndicator(strokeWidth: 2))),
         ),
         error: (e, _) => AppError(message: e.toString()),
-        data: (series) => series.isEmpty
-            ? Text(
-                'Niciun atelier înregistrat.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (int i = 0; i < series.length; i++) ...[
-                    if (i > 0) const Divider(height: 20),
-                    _SeriesRow(
-                      series: series[i],
-                      isAdmin: isAdmin,
-                      onRemove: () =>
-                          _removeWorkshop(context, ref, series[i]),
-                    ),
-                  ],
-                ],
-              ),
+        data: (series) {
+          if (series.isEmpty && afsPairs.isEmpty) {
+            return Text(
+              'Niciun program înregistrat.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            );
+          }
+          final rows = <Widget>[];
+          for (var i = 0; i < series.length; i++) {
+            if (i > 0) rows.add(const Divider(height: 20));
+            rows.add(_SeriesRow(
+              series: series[i],
+              isAdmin: isAdmin,
+              onRemove: () => _removeWorkshop(context, ref, series[i]),
+            ));
+          }
+          for (var i = 0; i < afsPairs.length; i++) {
+            if (rows.isNotEmpty) rows.add(const Divider(height: 20));
+            rows.add(_AfterschoolRow(pair: afsPairs[i], isAdmin: isAdmin));
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: rows,
+          );
+        },
       ),
     );
   }
@@ -228,5 +263,85 @@ class _Meta extends StatelessWidget {
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.outline)),
     ]);
+  }
+}
+
+// ── Afterschool rows ─────────────────────────────────────────────────
+
+class _AfterschoolPair {
+  const _AfterschoolPair({
+    required this.program,
+    required this.enrollmentId,
+  });
+  final AfterschoolProgram program;
+  final String enrollmentId;
+}
+
+class _AfterschoolRow extends StatelessWidget {
+  const _AfterschoolRow({required this.pair, required this.isAdmin});
+  final _AfterschoolPair pair;
+  final bool isAdmin;
+
+  static const _weekdaysShort = ['L', 'Ma', 'Mi', 'J', 'V', 'S', 'D'];
+
+  String _daysLabel(Set<int> days) {
+    final sorted = days.toList()..sort();
+    return sorted.map((d) => _weekdaysShort[d - 1]).join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final p = pair.program;
+    final hours = '${p.startTimeShort} – ${p.endTimeShort}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () =>
+                    context.push('/afterschool/programs/${p.id}'),
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.purple,
+                      decoration: TextDecoration.underline,
+                      decorationColor:
+                          AppColors.purple.withValues(alpha: 0.4),
+                    ),
+                    children: [
+                      TextSpan(text: p.name),
+                      const TextSpan(
+                        text: '  Afterschool',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                          color: AppColors.purple,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 14,
+          runSpacing: 4,
+          children: [
+            _Meta(Icons.calendar_today_outlined, _daysLabel(p.daysOfWeek)),
+            _Meta(Icons.schedule_outlined, hours),
+          ],
+        ),
+      ],
+    );
   }
 }

@@ -6,8 +6,18 @@ import 'series_snapshot.dart';
 
 /// Four compact summary cards + optional financial alert banner.
 ///
-/// Values come from the pre-built [SeriesFinancialSnapshot] map so the
-/// numbers here never drift from what the tabs render.
+/// Workshop-only. Afterschool has no payment semantics on the child
+/// profile, so it does not contribute to these counters. The 4 stats
+/// speak strictly about workshop payment-cycle periods.
+///
+///   • Ateliere active   = workshop series the child is enrolled in
+///   • Cicluri achitate  = sum of paid cycles across series
+///   • Cicluri finalizate = cycles with 4 recorded sessions
+///   • Neplătite         = due/overdue cycles
+///
+/// Afterschool enrollments live in the "Programele la care participă"
+/// card above; attendance is in its own panel. They don't need a
+/// financial counter.
 class FinancialSummaryStrip extends StatelessWidget {
   const FinancialSummaryStrip({super.key, required this.snapshots});
   final Map<String, SeriesFinancialSnapshot> snapshots;
@@ -143,8 +153,9 @@ class _SummaryItem extends StatelessWidget {
   }
 }
 
-/// Compact orange banner shown when the child has one or more due cycles.
-/// Lists which workshops are affected so the admin knows where to go.
+/// Compact orange banner shown when the child has one or more due
+/// workshop cycles. Lists which workshops are affected. Afterschool
+/// is excluded — it has no payment surface on the child profile.
 class PaymentAlertBanner extends StatelessWidget {
   const PaymentAlertBanner({super.key, required this.snapshots});
   final Map<String, SeriesFinancialSnapshot> snapshots;
@@ -155,13 +166,11 @@ class PaymentAlertBanner extends StatelessWidget {
     for (final s in snapshots.values) {
       if (s.totalDue > 0) duePerSeries[s.seriesTitle] = s.totalDue;
     }
-    final totalDue =
-        duePerSeries.values.fold<int>(0, (a, b) => a + b);
+    final totalDue = duePerSeries.values.fold<int>(0, (a, b) => a + b);
     if (totalDue == 0) return const SizedBox.shrink();
 
     final workshopList = duePerSeries.entries
-        .map((e) =>
-            e.value > 1 ? '${e.key} (${e.value})' : e.key)
+        .map((e) => e.value > 1 ? '${e.key} (${e.value})' : e.key)
         .join(', ');
     final label = totalDue == 1
         ? '1 ciclu complet este neplătit: $workshopList'

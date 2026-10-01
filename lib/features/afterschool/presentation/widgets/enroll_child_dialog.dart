@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -48,7 +47,6 @@ class _EnrollDialogState extends ConsumerState<_EnrollDialog> {
   bool _followsAllDays = true;
   Set<int> _pickedDays = {};
   TimeOfDay? _arrival;
-  final _feeCtrl = TextEditingController();
   bool _saving = false;
   String? _err;
   bool _acknowledgedCapacity = false;
@@ -62,12 +60,6 @@ class _EnrollDialogState extends ConsumerState<_EnrollDialog> {
   void initState() {
     super.initState();
     _pickedDays = {...widget.program.daysOfWeek};
-  }
-
-  @override
-  void dispose() {
-    _feeCtrl.dispose();
-    super.dispose();
   }
 
   bool get _atCapacity =>
@@ -197,28 +189,6 @@ class _EnrollDialogState extends ConsumerState<_EnrollDialog> {
                     onChanged: (v) => setState(() => _arrival = v),
                   ),
                 ),
-                const SizedBox(height: 12),
-                ChildFormField(
-                  label: 'Tarif personalizat (opțional)',
-                  child: TextFormField(
-                    controller: _feeCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-                    ],
-                    decoration: buildChildFormInputDeco(theme).copyWith(
-                      hintText:
-                          'Lăsat gol → tariful standard (${_fmtFee(widget.program.monthlyFee)} ${widget.program.currency}/lună)',
-                    ),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) return null;
-                      final n = _parseNum(v);
-                      if (n == null || n <= 0) return 'Tarif invalid';
-                      return null;
-                    },
-                  ),
-                ),
                 if (_err != null) ...[
                   const SizedBox(height: 12),
                   Text(_err!,
@@ -312,7 +282,10 @@ class _EnrollDialogState extends ConsumerState<_EnrollDialog> {
         childId: _child!.id,
         programId: widget.program.id,
         enrolledFrom: _enrolledFrom,
-        customMonthlyFee: _parseNum(_feeCtrl.text),
+        // Custom fee is deliberately NOT collected from the operational
+        // enroll dialog — financial management lives in the child
+        // profile. The repo accepts null; the enrollment inherits the
+        // program's monthly fee.
         attendanceDays: _followsAllDays ? null : _pickedDays,
         expectedArrivalTime:
             _arrival == null ? null : _fmtTod(_arrival!),
@@ -379,18 +352,6 @@ class _ArrivalPicker extends StatelessWidget {
 
 String _fmtTod(TimeOfDay t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-
-double? _parseNum(String? v) {
-  if (v == null) return null;
-  final t = v.trim().replaceAll(',', '.');
-  if (t.isEmpty) return null;
-  return double.tryParse(t);
-}
-
-String _fmtFee(double v) {
-  if (v == v.roundToDouble()) return v.toStringAsFixed(0);
-  return v.toStringAsFixed(2);
-}
 
 String _prettyError(String raw) {
   if (raw.contains('attendance_days_not_subset_of_program_days')) {

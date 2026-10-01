@@ -7,11 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/supabase/supabase_client_provider.dart';
 import '../core/widgets/app_shell.dart';
-import '../features/afterschool/presentation/afterschool_program_detail_page.dart';
 import '../features/afterschool/presentation/afterschool_program_form_page.dart';
 import '../features/afterschool/presentation/afterschool_programs_page.dart';
 import '../features/afterschool/presentation/afterschool_session_day_page.dart';
-import '../features/afterschool/presentation/afterschool_today_page.dart';
 import '../features/auth/domain/app_profile.dart';
 import '../features/assistant/presentation/assistant_page.dart';
 import '../features/auth/presentation/auth_callback_page.dart';
@@ -391,14 +389,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/team-chat',
             builder: (context, state) => const TeamChatPage(),
           ),
-          // Phase 3: default landing is the daily operations page.
+          // Phase 4 UX simplification: Afterschool has a single
+          // operational surface per program. Entry lists programs;
+          // clicking a program opens its per-day operational page,
+          // seeded with today's date. Payments happen on the child
+          // profile — no dedicated payments screen anymore.
           GoRoute(
             path: '/afterschool',
-            redirect: (context, state) => '/afterschool/today',
-          ),
-          GoRoute(
-            path: '/afterschool/today',
-            builder: (context, state) => const AfterschoolTodayPage(),
+            redirect: (context, state) => '/afterschool/programs',
           ),
           GoRoute(
             path: '/afterschool/programs',
@@ -409,11 +407,20 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) =>
                 const AfterschoolProgramFormPage(),
           ),
+          // Program root → today's operational page (single per-program
+          // surface). Preserved as a redirect so existing bookmarks /
+          // deep-links to `/afterschool/programs/:id` keep working.
           GoRoute(
             path: '/afterschool/programs/:id',
-            builder: (context, state) => AfterschoolProgramDetailPage(
-              programId: state.pathParameters['id']!,
-            ),
+            redirect: (context, state) {
+              final id = state.pathParameters['id']!;
+              final n = DateTime.now();
+              final iso =
+                  '${n.year.toString().padLeft(4, '0')}-'
+                  '${n.month.toString().padLeft(2, '0')}-'
+                  '${n.day.toString().padLeft(2, '0')}';
+              return '/afterschool/programs/$id/day/$iso';
+            },
           ),
           GoRoute(
             path: '/afterschool/programs/:id/edit',

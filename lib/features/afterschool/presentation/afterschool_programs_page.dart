@@ -295,8 +295,6 @@ class _ProgramRow extends ConsumerWidget {
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline)),
             ),
-            const SizedBox(width: 16),
-            _FeeLabel(program: program),
             if (isAdmin) ...[
               const SizedBox(width: 6),
               _RowMenu(program: program),
@@ -354,20 +352,6 @@ class _CapacityChip extends StatelessWidget {
         color: full ? AppColors.warning : null,
         fontWeight: full ? FontWeight.w700 : FontWeight.w500,
       ),
-    );
-  }
-}
-
-class _FeeLabel extends StatelessWidget {
-  const _FeeLabel({required this.program});
-  final AfterschoolProgram program;
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      '${_fmtFee(program.monthlyFee)} ${program.currency} / lună',
-      style: theme.textTheme.bodySmall
-          ?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 }
@@ -462,7 +446,3 @@ class _RowMenu extends ConsumerWidget {
   }
 }
 
-String _fmtFee(double v) {
-  if (v == v.roundToDouble()) return v.toStringAsFixed(0);
-  return v.toStringAsFixed(2);
-}
