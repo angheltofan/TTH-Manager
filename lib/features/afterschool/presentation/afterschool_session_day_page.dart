@@ -268,11 +268,18 @@ class _DayContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = summary;
-    final expected = [...s.expected]..sort((a, b) {
+    // "Copii înscriși" is the full roster for the selected day — every
+    // enrollment covering the date, regardless of per-child
+    // attendance_days. The expected-today subset only gates whether
+    // the row shows attendance controls. The user must be able to
+    // see/manage every validly-enrolled child even on a day the
+    // program doesn't run or a day outside the child's weekday set.
+    final roster = [...s.roster]..sort((a, b) {
         final na = childrenById[a.childId]?.fullName ?? a.childId;
         final nb = childrenById[b.childId]?.fullName ?? b.childId;
         return na.compareTo(nb);
       });
+    final expectedIds = s.expected.map((e) => e.childId).toSet();
     final unexpected = [...s.unexpectedAttendance]..sort((a, b) {
         final na = childrenById[a.childId]?.fullName ?? a.childId;
         final nb = childrenById[b.childId]?.fullName ?? b.childId;
@@ -297,35 +304,43 @@ class _DayContent extends ConsumerWidget {
           ),
           SizedBox(height: gap),
         ],
-        if (!s.sessionExists)
-          _NoSessionCard(date: summary.session?.sessionDate ?? DateTime.now())
-        else
-          _EnrolmentsListCard(
-            program: program,
-            expected: expected,
-            summary: s,
-            childrenById: childrenById,
-            attFor: attFor,
-            isStaff: isStaff,
-            isAdmin: isAdmin,
-            marking: marking,
-            markingAll: markingAll,
-            onMark: (childId, status, observation) => _mark(
-              context,
-              ref,
-              sessionId: s.session!.id,
-              childId: childId,
-              status: status,
-              observation: observation,
-            ),
-            onUnmark: (att) => _unmark(
-              context,
-              ref,
-              sessionId: s.session!.id,
-              attendance: att,
-            ),
-            onMarkAll: () => _markAllPresent(context, ref, s, expected),
-          ),
+        if (!s.sessionExists) ...[
+          const _NoSessionBanner(),
+          SizedBox(height: gap),
+        ],
+        _EnrolmentsListCard(
+          program: program,
+          roster: roster,
+          expectedIds: expectedIds,
+          summary: s,
+          childrenById: childrenById,
+          attFor: attFor,
+          isStaff: isStaff,
+          isAdmin: isAdmin,
+          marking: marking,
+          markingAll: markingAll,
+          onMark: s.sessionExists
+              ? (childId, status, observation) => _mark(
+                    context,
+                    ref,
+                    sessionId: s.session!.id,
+                    childId: childId,
+                    status: status,
+                    observation: observation,
+                  )
+              : null,
+          onUnmark: s.sessionExists
+              ? (att) => _unmark(
+                    context,
+                    ref,
+                    sessionId: s.session!.id,
+                    attendance: att,
+                  )
+              : null,
+          onMarkAll: s.sessionExists
+              ? () => _markAllPresent(context, ref, s, s.expected)
+              : null,
+        ),
         if (unexpected.isNotEmpty) ...[
           SizedBox(height: gap),
           _UnexpectedList(
@@ -380,6 +395,12 @@ class _DayContent extends ConsumerWidget {
           );
       ref.invalidate(afterschoolAttendanceForSessionProvider(sessionId));
       ref.invalidate(afterschoolDaySummaryProvider);
+      // The child profile's Afterschool panel + history row watch
+      // afterschoolMonthAttendanceProvider for (childId, programId,
+      // year, month). Realtime also invalidates the family, but the
+      // initiating tab must refresh locally — otherwise navigating
+      // to the profile right after marking shows stale counts.
+      _invalidateChildMonth(ref, childId: childId);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -403,6 +424,7 @@ class _DayContent extends ConsumerWidget {
           .deleteAttendance(isAdmin: true, attendanceId: attendance.id);
       ref.invalidate(afterschoolAttendanceForSessionProvider(sessionId));
       ref.invalidate(afterschoolDaySummaryProvider);
+      _invalidateChildMonth(ref, childId: attendance.childId);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -451,6 +473,12 @@ class _DayContent extends ConsumerWidget {
           );
       ref.invalidate(afterschoolAttendanceForSessionProvider(s.session!.id));
       ref.invalidate(afterschoolDaySummaryProvider);
+      // Fan the month-attendance invalidation out across every
+      // affected child so their profile panels + history rows
+      // refresh immediately (realtime handles other tabs/devices).
+      for (final e in expected) {
+        _invalidateChildMonth(ref, childId: e.childId);
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Toți copiii marcati prezenți.')));
@@ -470,6 +498,29 @@ class _DayContent extends ConsumerWidget {
       return 'Nu ai permisiunea necesară.';
     }
     return raw;
+  }
+
+  /// Refresh the child profile's monthly Afterschool panel + history
+  /// row for (childId, program, year, month) derived from the session
+  /// currently in [summary]. If the session isn't materialised yet
+  /// (shouldn't happen on a mark path, but we guard anyway), fall
+  /// back to the whole family — Riverpod only re-runs mounted
+  /// entries, so the fallback is bounded.
+  void _invalidateChildMonth(WidgetRef ref, {required String childId}) {
+    final session = summary.session;
+    if (session == null) {
+      ref.invalidate(afterschoolMonthAttendanceProvider);
+      return;
+    }
+    final d = session.sessionDate;
+    ref.invalidate(afterschoolMonthAttendanceProvider(
+      AfterschoolChildMonthKey(
+        childId: childId,
+        programId: program.id,
+        year: d.year,
+        month: d.month,
+      ),
+    ));
   }
 }
 
@@ -635,7 +686,8 @@ class _CloseDayButton extends ConsumerWidget {
 class _EnrolmentsListCard extends StatelessWidget {
   const _EnrolmentsListCard({
     required this.program,
-    required this.expected,
+    required this.roster,
+    required this.expectedIds,
     required this.summary,
     required this.childrenById,
     required this.attFor,
@@ -649,7 +701,18 @@ class _EnrolmentsListCard extends StatelessWidget {
   });
 
   final AfterschoolProgram program;
-  final List<AfterschoolEnrollment> expected;
+
+  /// Full roster for the selected day — every enrollment whose window
+  /// covers the date, regardless of weekday. Rendered in full so a
+  /// child enrolled Mon/Wed/Fri is still visible on Tuesday with a
+  /// muted "Nu participă azi" chip and no attendance controls.
+  final List<AfterschoolEnrollment> roster;
+
+  /// Child ids for whom the day is in-schedule (weekday matches the
+  /// enrollment's attendance_days). Rows outside this set keep the
+  /// admin menu but lose attendance controls.
+  final Set<String> expectedIds;
+
   final AfterschoolDaySummary summary;
   final Map<String, ChildRow> childrenById;
   final AfterschoolAttendance? Function(String childId) attFor;
@@ -657,13 +720,19 @@ class _EnrolmentsListCard extends StatelessWidget {
   final bool isAdmin;
   final Set<String> marking;
   final bool markingAll;
-  final Future<void> Function(
-          String childId, AttendanceStatus status, String? observation)
-      onMark;
-  final Future<void> Function(AfterschoolAttendance att) onUnmark;
-  final VoidCallback onMarkAll;
 
-  bool get _canInteract => isStaff && !summary.isClosed;
+  /// `null` when the day has no session (program not scheduled on this
+  /// weekday or no row generated yet) — rows render without attendance
+  /// controls, admin menu is still available.
+  final Future<void> Function(
+          String childId, AttendanceStatus status, String? observation)?
+      onMark;
+  final Future<void> Function(AfterschoolAttendance att)? onUnmark;
+  final VoidCallback? onMarkAll;
+
+  bool get _canInteract =>
+      isStaff && !summary.isClosed && onMark != null;
+  int get _expectedCount => summary.expected.length;
 
   @override
   Widget build(BuildContext context) {
@@ -683,33 +752,35 @@ class _EnrolmentsListCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
             child: context.isMobile
                 ? _MobileHeader(
-                    count: expected.length,
+                    count: roster.length,
+                    expectedCount: _expectedCount,
                     isAdmin: isAdmin,
                     program: program,
-                    canMarkAll: _canInteract && expected.isNotEmpty,
+                    canMarkAll: _canInteract && _expectedCount > 0,
                     markingAll: markingAll,
-                    onMarkAll: onMarkAll,
+                    onMarkAll: onMarkAll ?? () {},
                     theme: theme,
                   )
                 : _DesktopHeader(
-                    count: expected.length,
+                    count: roster.length,
+                    expectedCount: _expectedCount,
                     isAdmin: isAdmin,
                     program: program,
-                    canMarkAll: _canInteract && expected.isNotEmpty,
+                    canMarkAll: _canInteract && _expectedCount > 0,
                     markingAll: markingAll,
-                    onMarkAll: onMarkAll,
+                    onMarkAll: onMarkAll ?? () {},
                     theme: theme,
                   ),
           ),
           Divider(
               height: 1,
               color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-          if (expected.isEmpty)
+          if (roster.isEmpty)
             Padding(
               padding: const EdgeInsets.all(24),
               child: Center(
                 child: Text(
-                  'Niciun copil înscris pentru ziua aceasta.',
+                  'Niciun copil înscris în program.',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline),
                 ),
@@ -719,7 +790,7 @@ class _EnrolmentsListCard extends StatelessWidget {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: expected.length,
+              itemCount: roster.length,
               separatorBuilder: (_, _) => Divider(
                 height: 1,
                 indent: 16,
@@ -727,24 +798,36 @@ class _EnrolmentsListCard extends StatelessWidget {
                 color: theme.colorScheme.outline.withValues(alpha: 0.12),
               ),
               itemBuilder: (context, i) {
-                final e = expected[i];
+                final e = roster[i];
                 final att = attFor(e.childId);
                 final name = childrenById[e.childId]?.fullName ?? e.childId;
+                final isExpectedToday = expectedIds.contains(e.childId);
                 return _EnrolmentRow(
                   program: program,
                   enrollment: e,
                   childName: name,
                   attendance: att,
                   isLoading: marking.contains(e.childId),
-                  locked: summary.isClosed || !isStaff,
+                  // Rows that aren't expected today render as roster
+                  // entries with no attendance controls — the admin
+                  // menu stays available via the shared row chrome.
+                  locked: summary.isClosed ||
+                      !isStaff ||
+                      !isExpectedToday ||
+                      onMark == null,
+                  isExpectedToday: isExpectedToday,
                   isAdmin: isAdmin,
-                  onMark: (status, observation) =>
-                      onMark(e.childId, status, observation),
-                  onUnmark: att == null ? null : () => onUnmark(att),
+                  onMark: onMark == null
+                      ? null
+                      : (status, observation) =>
+                          onMark!(e.childId, status, observation),
+                  onUnmark: (att == null || onUnmark == null)
+                      ? null
+                      : () => onUnmark!(att),
                 );
               },
             ),
-          if (expected.isNotEmpty) ...[
+          if (_expectedCount > 0) ...[
             Divider(
                 height: 1,
                 color: theme.colorScheme.outline.withValues(alpha: 0.2)),
@@ -756,9 +839,40 @@ class _EnrolmentsListCard extends StatelessWidget {
   }
 }
 
+/// Count pill — shows the full roster count, with the expected-today
+/// subcount in parentheses when it differs. The two differ whenever
+/// some enrolled children have `attendance_days` that excludes the
+/// selected weekday, or when the program isn't scheduled that day.
+class _CountPill extends StatelessWidget {
+  const _CountPill({required this.count, required this.expectedCount});
+
+  final int count;
+  final int expectedCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final showSplit = count != expectedCount;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.purple.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        showSplit ? '$count · $expectedCount azi' : '$count',
+        style: const TextStyle(
+            color: AppColors.purple,
+            fontSize: 12,
+            fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
 class _DesktopHeader extends StatelessWidget {
   const _DesktopHeader({
     required this.count,
+    required this.expectedCount,
     required this.isAdmin,
     required this.program,
     required this.canMarkAll,
@@ -768,6 +882,7 @@ class _DesktopHeader extends StatelessWidget {
   });
 
   final int count;
+  final int expectedCount;
   final bool isAdmin;
   final AfterschoolProgram program;
   final bool canMarkAll;
@@ -795,21 +910,7 @@ class _DesktopHeader extends StatelessWidget {
               ?.copyWith(fontWeight: FontWeight.w700),
         ),
         const Spacer(),
-        Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.purple.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            '$count',
-            style: const TextStyle(
-                color: AppColors.purple,
-                fontSize: 12,
-                fontWeight: FontWeight.w700),
-          ),
-        ),
+        _CountPill(count: count, expectedCount: expectedCount),
         if (isAdmin) _AddChildrenButton(program: program),
         if (canMarkAll)
           _MarkAllPresentButton(onTap: onMarkAll, loading: markingAll),
@@ -821,6 +922,7 @@ class _DesktopHeader extends StatelessWidget {
 class _MobileHeader extends StatelessWidget {
   const _MobileHeader({
     required this.count,
+    required this.expectedCount,
     required this.isAdmin,
     required this.program,
     required this.canMarkAll,
@@ -830,6 +932,7 @@ class _MobileHeader extends StatelessWidget {
   });
 
   final int count;
+  final int expectedCount;
   final bool isAdmin;
   final AfterschoolProgram program;
   final bool canMarkAll;
@@ -863,21 +966,7 @@ class _MobileHeader extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.purple.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '$count',
-                style: const TextStyle(
-                    color: AppColors.purple,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700),
-              ),
-            ),
+            _CountPill(count: count, expectedCount: expectedCount),
           ],
         ),
         if (hasActions) ...[
@@ -982,6 +1071,7 @@ class _EnrolmentRow extends ConsumerWidget {
     required this.attendance,
     required this.isLoading,
     required this.locked,
+    required this.isExpectedToday,
     required this.isAdmin,
     required this.onMark,
     required this.onUnmark,
@@ -992,9 +1082,23 @@ class _EnrolmentRow extends ConsumerWidget {
   final String childName;
   final AfterschoolAttendance? attendance;
   final bool isLoading;
+
+  /// True when attendance controls are suppressed — closed session,
+  /// non-staff viewer, or the child is enrolled but outside today's
+  /// `attendance_days`. The row still shows the admin menu via the
+  /// shared row chrome.
   final bool locked;
+
+  /// Whether the day falls in this child's attendance_days (or the
+  /// enrollment covers every program day). Rows that aren't expected
+  /// render with a muted "Nu participă azi" chip instead of toggles.
+  final bool isExpectedToday;
+
   final bool isAdmin;
-  final void Function(AttendanceStatus status, String? observation) onMark;
+
+  /// `null` on days with no session (program not scheduled). Rows
+  /// render as roster-only entries.
+  final void Function(AttendanceStatus status, String? observation)? onMark;
   final VoidCallback? onUnmark;
 
   String? get _arrivalShort {
@@ -1004,6 +1108,8 @@ class _EnrolmentRow extends ConsumerWidget {
   }
 
   void _openDialog(BuildContext context, String initialStatus) {
+    final mark = onMark;
+    if (mark == null) return;
     showDialog<void>(
       context: context,
       builder: (_) => AttendanceDialog(
@@ -1013,7 +1119,7 @@ class _EnrolmentRow extends ConsumerWidget {
           final mapped = status == 'present'
               ? AttendanceStatus.present
               : AttendanceStatus.absent;
-          onMark(mapped, observation);
+          mark(mapped, observation);
         },
       ),
     );
@@ -1062,7 +1168,12 @@ class _EnrolmentRow extends ConsumerWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           )
         : locked
-            ? AttendanceStatusChip(status: statusDb)
+            // Roster-only row: enrolled but outside today's attendance
+            // days (or no session this day). Show a muted chip so the
+            // admin can see at a glance why there are no toggles.
+            ? (!isExpectedToday && attendance == null
+                ? const _NotTodayChip()
+                : AttendanceStatusChip(status: statusDb))
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1603,36 +1714,75 @@ class _ClosedBanner extends ConsumerWidget {
   }
 }
 
-class _NoSessionCard extends StatelessWidget {
-  const _NoSessionCard({required this.date});
-  final DateTime date;
+/// Muted banner that sits above the roster card on days without a
+/// session (program not scheduled for this weekday, or outside the
+/// program's active window). The roster card still renders below so
+/// admins can see and manage every valid enrollment regardless of day.
+class _NoSessionBanner extends StatelessWidget {
+  const _NoSessionBanner();
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.35)),
+        color: AppColors.muted.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: AppColors.muted.withValues(alpha: 0.3)),
       ),
-      child: Column(children: [
-        Icon(Icons.event_busy_outlined,
-            size: 36, color: theme.colorScheme.outline),
-        const SizedBox(height: 8),
-        Text('Nu a existat sesiune programată',
-            style: theme.textTheme.titleSmall
-                ?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text(
-          'În această zi programul nu era activ sau ziua nu se '
-          'încadra în orarul lui.',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: theme.colorScheme.outline),
+      child: Row(children: [
+        const Icon(Icons.event_busy_outlined,
+            color: AppColors.muted, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Nu a existat sesiune programată',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700, color: AppColors.muted),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'În această zi programul nu era activ sau ziua nu se '
+                'încadra în orarul lui. Prezența nu poate fi marcată, '
+                'dar înscrierile rămân vizibile.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
         ),
       ]),
+    );
+  }
+}
+
+/// Trailing chip for roster rows that aren't expected on the selected
+/// day — the child is validly enrolled but outside their
+/// `attendance_days`, or the program itself isn't scheduled that day.
+class _NotTodayChip extends StatelessWidget {
+  const _NotTodayChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.muted.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.muted.withValues(alpha: 0.3)),
+      ),
+      child: const Text(
+        'Nu participă azi',
+        style: TextStyle(
+            color: AppColors.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w600),
+      ),
     );
   }
 }

@@ -291,10 +291,19 @@ class _EnrollDialogState extends ConsumerState<_EnrollDialog> {
             _arrival == null ? null : _fmtTod(_arrival!),
         enrolledBy: adminId,
       );
+      // Full invalidation surface: realtime will eventually re-emit the
+      // INSERT, but the initiating tab must not depend on that round-trip
+      // — the user clicked Save and expects to see the new row now.
       ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider(
           widget.program.id));
       ref.invalidate(afterschoolActiveEnrollmentCountProvider(
           widget.program.id));
+      ref.invalidate(afterschoolAllActiveEnrollmentsProvider);
+      ref.invalidate(afterschoolRosterForDateProvider);
+      ref.invalidate(afterschoolExpectedEnrollmentsForDateProvider);
+      ref.invalidate(afterschoolDaySummaryProvider);
+      ref.invalidate(afterschoolEnrollmentsForChildProvider(_child!.id));
+      ref.invalidate(afterschoolMonthAttendanceProvider);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(

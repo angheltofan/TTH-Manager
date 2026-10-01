@@ -229,8 +229,19 @@ class _EditDialogState extends ConsumerState<_EditDialog> {
       // they are visible alongside the payment history. The DB column
       // `custom_monthly_fee` stays as-is on the enrollment row.
 
+      // Full invalidation surface — see enroll_child_dialog._onSave().
+      // attendance_days changes shift the weekday-filtered expected
+      // list, so both the day summary and the roster families must
+      // refresh locally, not only via realtime.
       ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider(
           widget.program.id));
+      ref.invalidate(afterschoolAllActiveEnrollmentsProvider);
+      ref.invalidate(afterschoolRosterForDateProvider);
+      ref.invalidate(afterschoolExpectedEnrollmentsForDateProvider);
+      ref.invalidate(afterschoolDaySummaryProvider);
+      ref.invalidate(
+          afterschoolEnrollmentsForChildProvider(e.childId));
+      ref.invalidate(afterschoolMonthAttendanceProvider);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(

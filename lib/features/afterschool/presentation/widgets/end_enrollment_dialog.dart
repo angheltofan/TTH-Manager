@@ -114,12 +114,28 @@ Future<void> showEndEnrollmentDialog({
                             enrollmentId: enrollment.id,
                             until: picked,
                           );
+                      // Full invalidation surface — see
+                      // enroll_child_dialog._onSave(). Ending an
+                      // enrollment removes the child from both the
+                      // roster (from the end date onward) and the
+                      // expected list, so every dependent family must
+                      // refresh locally, not only via realtime.
                       ref.invalidate(
                           afterschoolActiveEnrollmentsForProgramProvider(
                               program.id));
                       ref.invalidate(
                           afterschoolActiveEnrollmentCountProvider(
                               program.id));
+                      ref.invalidate(
+                          afterschoolAllActiveEnrollmentsProvider);
+                      ref.invalidate(afterschoolRosterForDateProvider);
+                      ref.invalidate(
+                          afterschoolExpectedEnrollmentsForDateProvider);
+                      ref.invalidate(afterschoolDaySummaryProvider);
+                      ref.invalidate(
+                          afterschoolEnrollmentsForChildProvider(
+                              enrollment.childId));
+                      ref.invalidate(afterschoolMonthAttendanceProvider);
                       if (ctx.mounted) {
                         Navigator.of(ctx).pop();
                         ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(

@@ -196,17 +196,33 @@ final afterschoolSessionForDateProvider =
   return repo.fetchByDate(programId: key.programId, date: d);
 });
 
-/// Enrollments expected on [date] for [programId]. Applies the domain
-/// helper `AfterschoolEnrollment.isExpectedForDate` — coversDate AND
-/// followsWeekday. Rows a child ended before that date, or that don't
-/// follow the date's weekday, are filtered out.
-final afterschoolExpectedEnrollmentsForDateProvider =
+/// Program enrollment roster for [date]: every enrollment whose
+/// `[enrolledFrom, enrolledUntil]` interval covers the date, regardless
+/// of per-child `attendance_days`. This is the "Copii înscriși" source
+/// the operational page renders — a child enrolled Mon/Wed/Fri is in
+/// the roster on Tue even though they're not expected to attend that
+/// day. Rows are not weekday-filtered here; the UI tags each row with
+/// `enrollment.isExpectedForDate(date)` to decide whether to show
+/// attendance controls.
+final afterschoolRosterForDateProvider =
     FutureProvider.family<List<AfterschoolEnrollment>, AfterschoolDayKey>(
         (ref, key) async {
   final repo = ref.watch(afterschoolEnrollmentsRepositoryProvider);
-  final rows = await repo.fetchCoveringDate(
+  return repo.fetchCoveringDate(
       programId: key.programId, date: key.date);
-  return rows.where((e) => e.isExpectedForDate(key.date)).toList();
+});
+
+/// Enrollments expected on [date] for [programId]. Derives from the
+/// roster provider so (roster, expected) share one DB round-trip, and
+/// then applies the domain helper
+/// `AfterschoolEnrollment.isExpectedForDate` — coversDate AND
+/// followsWeekday.
+final afterschoolExpectedEnrollmentsForDateProvider =
+    FutureProvider.family<List<AfterschoolEnrollment>, AfterschoolDayKey>(
+        (ref, key) async {
+  final roster =
+      await ref.watch(afterschoolRosterForDateProvider(key).future);
+  return roster.where((e) => e.isExpectedForDate(key.date)).toList();
 });
 
 /// Every attendance row for [sessionId]. Empty if the session has no
@@ -228,11 +244,19 @@ final afterschoolAttendanceForSessionProvider =
 /// "Prezențe în afara programului zilei" section.
 class AfterschoolDaySummary {
   const AfterschoolDaySummary({
+    required this.roster,
     required this.expected,
     required this.attendance,
     required this.unexpectedAttendance,
     required this.session,
   });
+
+  /// Every enrollment covering the day — the "Copii înscriși" roster
+  /// shown on the operational page. `expected` is the weekday-filtered
+  /// subset used for attendance. The two differ on days where a
+  /// child's per-child `attendance_days` excludes that weekday: they
+  /// stay in [roster] but drop out of [expected].
+  final List<AfterschoolEnrollment> roster;
 
   final List<AfterschoolEnrollment> expected;
   final List<AfterschoolAttendance> attendance;
@@ -245,6 +269,7 @@ class AfterschoolDaySummary {
 
   final AfterschoolSession? session;
 
+  int get rosterCount => roster.length;
   int get expectedCount => expected.length;
 
   int get presentCount => attendance
@@ -268,13 +293,19 @@ class AfterschoolDaySummary {
   bool get sessionExists => session != null;
 }
 
-/// Aggregation provider — combines session + expected + attendance for
-/// (program, date) into a single AsyncValue the UI cards consume.
+/// Aggregation provider — combines session + roster + expected +
+/// attendance for (program, date) into a single AsyncValue the UI
+/// cards consume. [roster] is every enrollment covering the day;
+/// [expected] is the weekday-filtered subset. One DB round-trip
+/// covers both, because [afterschoolExpectedEnrollmentsForDateProvider]
+/// derives from [afterschoolRosterForDateProvider].
 final afterschoolDaySummaryProvider =
     FutureProvider.family<AfterschoolDaySummary, AfterschoolDayKey>(
         (ref, key) async {
   final session =
       await ref.watch(afterschoolSessionForDateProvider(key).future);
+  final roster =
+      await ref.watch(afterschoolRosterForDateProvider(key).future);
   final expected = await ref
       .watch(afterschoolExpectedEnrollmentsForDateProvider(key).future);
 
@@ -288,6 +319,7 @@ final afterschoolDaySummaryProvider =
       attendance.where((a) => !expectedIds.contains(a.childId)).toList();
 
   return AfterschoolDaySummary(
+    roster: roster,
     expected: expected,
     attendance: attendance,
     unexpectedAttendance: unexpected,

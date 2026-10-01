@@ -466,6 +466,7 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           ref.invalidate(afterschoolActiveEnrollmentsForProgramProvider);
           ref.invalidate(afterschoolActiveEnrollmentCountProvider);
           ref.invalidate(afterschoolAllActiveEnrollmentsProvider);
+          ref.invalidate(afterschoolRosterForDateProvider);
           ref.invalidate(afterschoolExpectedEnrollmentsForDateProvider);
           ref.invalidate(afterschoolDaySummaryProvider);
           // Child-details Afterschool panel: enrolments drive both
