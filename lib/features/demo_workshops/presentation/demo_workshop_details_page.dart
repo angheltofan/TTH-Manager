@@ -7,12 +7,10 @@ import '../../../core/utils/date_utils.dart';
 import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/loading_state.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../children/providers/child_details_providers.dart';
-import '../../children/providers/children_providers.dart';
-import '../../dashboard/providers/dashboard_providers.dart';
-import '../../workshops/providers/enrollment_providers.dart';
 import '../domain/demo_workshop.dart';
 import '../providers/demo_workshops_providers.dart';
+import 'widgets/demo_convert_flow.dart';
+import 'widgets/reschedule_demo_dialog.dart';
 
 // ── DemoWorkshopDetailsPage ───────────────────────────────────────────────────
 
@@ -67,88 +65,23 @@ class _DemoWorkshopDetailsPageState
   }
 
   Future<void> _convert(DemoWorkshop demo) async {
-    final repo = ref.read(demoWorkshopsRepositoryProvider);
-
-    // Step 1: look for an existing child matching name + phone.
-    final existing = await repo.findExistingChild(
-      firstName: demo.childFirstName,
-      lastName: demo.childLastName,
-      phone: demo.parentPhone,
-    );
-
-    if (!mounted) return;
-
-    String? existingChildId;
-
-    if (existing != null) {
-      final link = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Copil existent găsit'),
-          content: Text(
-              'Există deja un copil cu numele "${existing['first_name']} ${existing['last_name']}" '
-              'și telefonul ${existing['parent_phone'] ?? '—'}.\n\n'
-              'Vrei să legi demo-ul de acest copil existent?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Creează copil nou')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Folosește existent')),
-          ],
-        ),
-      );
-      if (!mounted) return;
-      if (link == true) {
-        existingChildId = existing['id'] as String;
-      }
-    }
-
-    // Step 2: pick workshop series.
-    if (!mounted) return;
-    final seriesId = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _SelectSeriesDialog(demoType: demo.workshopType),
-    );
-    if (seriesId == null || !mounted) return;
-
-    // Step 3: single atomic RPC call.
-    // The RPC creates the child (if needed), upserts the enrollment, and
-    // flips the demo to status='converted' in one transaction. Idempotent
-    // re-call returns enrollmentCreated=false.
+    if (_busy) return;
     setState(() => _busy = true);
     try {
-      final result = await repo.convertDemoToEnrollment(
-        demoId: widget.demoId,
-        seriesId: seriesId,
-        existingChildId: existingChildId,
-      );
-      final childId = result.childId;
+      // Shared flow — single source of truth with the Demo-uri list.
+      await runConvertDemoFlow(
+          context: context, ref: ref, demo: demo);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
-      ref.invalidate(demoWorkshopByIdProvider(widget.demoId));
-      ref.invalidate(todayDemoWorkshopsProvider);
-      ref.invalidate(allChildrenProvider);
-      ref.invalidate(dashboardStatsProvider);
-      ref.invalidate(activeWorkshopSeriesProvider);
-      ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
-      ref.invalidate(availableChildrenForSeriesProvider(seriesId));
-      ref.invalidate(childWorkshopSeriesProvider(childId));
-      ref.invalidate(childByIdProvider(childId));
-      ref.invalidate(childCurrentStatusRowsProvider(childId));
-
-      if (mounted) {
-        final msg = result.enrollmentCreated
-            ? 'Copilul a fost înscris cu succes.'
-            : 'Demo-ul este deja convertit.';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(msg)));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Eroare: $e')));
-      }
+  Future<void> _reschedule(DemoWorkshop demo) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await showRescheduleDemoDialog(
+          context: context, ref: ref, original: demo);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -197,6 +130,7 @@ class _DemoWorkshopDetailsPageState
                         _setStatus('no_show', 'Absent'),
                     onCancel: () => _setStatus('cancelled', 'Anulat'),
                     onConvert: () => _convert(demo),
+                    onReschedule: () => _reschedule(demo),
                   ),
                 ],
                 if (!demo.isScheduled)
@@ -301,6 +235,7 @@ class _AdminActionsCard extends StatelessWidget {
     required this.onMarkNoShow,
     required this.onCancel,
     required this.onConvert,
+    required this.onReschedule,
   });
   final DemoWorkshop demo;
   final bool busy;
@@ -308,6 +243,7 @@ class _AdminActionsCard extends StatelessWidget {
   final VoidCallback onMarkNoShow;
   final VoidCallback onCancel;
   final VoidCallback onConvert;
+  final VoidCallback onReschedule;
 
   @override
   Widget build(BuildContext context) {
@@ -327,12 +263,22 @@ class _AdminActionsCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: onReschedule,
+          icon: const Icon(Icons.event_repeat_outlined),
+          label: const Text('Reprogramează'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.info,
+            minimumSize: const Size.fromHeight(44),
+          ),
+        ),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 onPressed: onMarkCompleted,
-                child: const Text('Finalizat'),
+                child: const Text('Prezent'),
               ),
             ),
             const SizedBox(width: 10),
@@ -448,70 +394,5 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-// ── Select series dialog ──────────────────────────────────────────────────────
-
-class _SelectSeriesDialog extends ConsumerWidget {
-  const _SelectSeriesDialog({required this.demoType});
-  final String demoType;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final seriesAsync = ref.watch(activeWorkshopSeriesProvider);
-
-    return AlertDialog(
-      title: const Text('Selectează seria'),
-      content: SizedBox(
-        width: 340,
-        child: seriesAsync.when(
-          loading: () => const SizedBox(
-              height: 80,
-              child: Center(
-                  child: CircularProgressIndicator(strokeWidth: 2))),
-          error: (e, _) => Text('Eroare: $e'),
-          data: (seriesList) {
-            if (seriesList.isEmpty) {
-              return const Text(
-                  'Nu există serii active disponibile.');
-            }
-            // Prefer series whose workshop_type matches the demo's type.
-            // Fall back to the full list if none match so the admin is never
-            // locked out of completing the conversion.
-            final demoTypeLower = demoType.trim().toLowerCase();
-            final matching = demoTypeLower.isEmpty
-                ? seriesList
-                : seriesList
-                    .where((s) =>
-                        (s.workshopType ?? '').trim().toLowerCase() ==
-                        demoTypeLower)
-                    .toList();
-            final visible =
-                matching.isNotEmpty ? matching : seriesList;
-
-            return ListView.separated(
-              shrinkWrap: true,
-              itemCount: visible.length,
-              separatorBuilder: (_, _) =>
-                  const Divider(height: 1),
-              itemBuilder: (context, i) {
-                final s = visible[i];
-                return ListTile(
-                  title: Text(s.title),
-                  subtitle: s.dayOfWeek != null
-                      ? Text('${s.dayOfWeek} · ${s.startTime.substring(0, 5)}')
-                      : null,
-                  onTap: () => Navigator.pop(context, s.id),
-                  dense: true,
-                );
-              },
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Anulează')),
-      ],
-    );
-  }
-}
+// The series picker now lives inside `widgets/demo_convert_flow.dart`
+// so the Demo-uri list row and the details page share one source.

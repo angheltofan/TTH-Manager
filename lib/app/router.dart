@@ -34,6 +34,7 @@ import '../features/trainers/presentation/trainers_page.dart';
 import '../features/workshops/presentation/workshop_details_page.dart';
 import '../features/demo_workshops/presentation/demo_workshop_details_page.dart';
 import '../features/demo_workshops/presentation/demo_workshop_form_page.dart';
+import '../features/demo_workshops/presentation/demos_page.dart';
 import '../features/download/presentation/download_page.dart';
 import '../features/team_chat/presentation/team_chat_page.dart';
 import '../features/workshops/presentation/workshop_form_page.dart';
@@ -374,6 +375,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/notifications',
             builder: (context, state) => const NotificationsPage(),
+          ),
+          // Demo-uri — first-class module (sidebar entry at /demos).
+          // The existing /demo-workshops/* routes stay registered so
+          // older deep-links and bookmarks keep resolving; the Demos
+          // list page uses the same scheduling form and detail page.
+          GoRoute(
+            path: '/demos',
+            builder: (context, state) => const DemosPage(),
           ),
           GoRoute(
             path: '/demo-workshops/new',

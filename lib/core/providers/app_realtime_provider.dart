@@ -367,6 +367,9 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
             debugPrint('[RT] demo_workshops → ${payload.eventType} id=$id');
           }
           ref.invalidate(todayDemoWorkshopsProvider);
+          ref.invalidate(demosForDayProvider);
+          ref.invalidate(upcomingDemosProvider);
+          ref.invalidate(historyDemosProvider);
           ref.invalidate(dashboardStatsProvider);
           if (id != null) {
             ref.invalidate(demoWorkshopByIdProvider(id));

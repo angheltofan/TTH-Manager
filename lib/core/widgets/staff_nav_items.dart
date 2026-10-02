@@ -28,6 +28,11 @@ const List<SidebarNavItem> kStaffPrimaryNav = <SidebarNavItem>[
     path: '/afterschool',
   ),
   SidebarNavItem(
+    icon: Icons.rocket_launch_outlined,
+    label: 'Demo-uri',
+    path: '/demos',
+  ),
+  SidebarNavItem(
     icon: Icons.auto_awesome_outlined,
     label: 'Asistent',
     path: '/assistant',

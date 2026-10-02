@@ -31,6 +31,21 @@ class DemoWorkshopsRepository {
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
+  /// Dashboard today's demos. Previously filtered to `status =
+  /// scheduled`, which meant a demo marked `completed` / `no_show` /
+  /// `converted` during the day vanished from the Dashboard — the
+  /// trainer couldn't tell at a glance who already showed up.
+  ///
+  /// New semantics: every demo scheduled for today EXCEPT `cancelled`
+  /// — a cancelled demo is explicitly removed from the day and should
+  /// not clutter the operational Dashboard. The outcome pill on each
+  /// row ("Prezent" / "Absent" / "Înscris") communicates the state.
+  /// The full history (including cancelled) stays accessible under
+  /// `/demos` → Astăzi (via [getForDate]).
+  ///
+  /// Keep the SQL-side filter in sync with [isDashboardTodayVisible]
+  /// — the predicate is the single source of truth for the inclusion
+  /// rule and is checked by the regression tests.
   Future<List<DemoWorkshop>> getTodayDemos() async {
     final today = DateTime.now();
     final dateStr = _fmt(today);
@@ -38,7 +53,54 @@ class DemoWorkshopsRepository {
         .from('demo_workshops')
         .select(_select)
         .eq('demo_date', dateStr)
-        .eq('status', 'scheduled')
+        .neq('status', 'cancelled')
+        .order('start_time');
+    return _mapList(data);
+  }
+
+  /// Whether a demo with [status] belongs in the Dashboard's "today"
+  /// list. True for every status operational trainers care about on
+  /// the day (`scheduled`, `completed`, `no_show`, `converted`);
+  /// false for `cancelled` since the demo was explicitly removed
+  /// from the day. The regression test enforces this contract.
+  static bool isDashboardTodayVisible(String status) =>
+      status != 'cancelled';
+
+  /// Every demo on [date], regardless of status. Powers the Demo-uri
+  /// "Astăzi" tab — a demo marked `completed` / `no_show` / `converted`
+  /// stays visible with its outcome shown as a status pill.
+  Future<List<DemoWorkshop>> getForDate(DateTime date) async {
+    final data = await _client
+        .from('demo_workshops')
+        .select(_select)
+        .eq('demo_date', _fmt(date))
+        .order('start_time');
+    return _mapList(data);
+  }
+
+  /// Future demos (strictly after today), ordered chronologically
+  /// ascending. Includes every status, so a scheduled demo cancelled
+  /// in advance still surfaces in "Următoare" instead of silently
+  /// vanishing.
+  Future<List<DemoWorkshop>> getUpcoming() async {
+    final data = await _client
+        .from('demo_workshops')
+        .select(_select)
+        .gt('demo_date', _fmt(DateTime.now()))
+        .order('demo_date')
+        .order('start_time');
+    return _mapList(data);
+  }
+
+  /// Past demos (strictly before today), newest first. Shows every
+  /// historical demo including converted / cancelled / no_show so the
+  /// admin can review the full lead journey.
+  Future<List<DemoWorkshop>> getHistory() async {
+    final data = await _client
+        .from('demo_workshops')
+        .select(_select)
+        .lt('demo_date', _fmt(DateTime.now()))
+        .order('demo_date', ascending: false)
         .order('start_time');
     return _mapList(data);
   }
@@ -108,6 +170,47 @@ class DemoWorkshopsRepository {
       'status': status,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     }).eq('id', id);
+  }
+
+  /// Reschedule contract: INSERT a NEW demo row carrying the original's
+  /// child/parent/workshop/trainer metadata to a new date/time. The
+  /// original row is left untouched so historical attendance stays in
+  /// place — the lead journey from the first demo to the follow-up
+  /// stays visible in "Istoric". Returns the new row's id so the UI
+  /// can navigate to it (or scroll it into view) immediately.
+  ///
+  /// The caller is expected to resolve the original via [getById]
+  /// first — this method takes only the fields it writes to avoid an
+  /// extra round-trip, and to make the contract explicit.
+  Future<String> reschedule({
+    required DemoWorkshop original,
+    required DateTime newDate,
+    required String newStartTime,
+    required String? newEndTime,
+    required String createdBy,
+  }) async {
+    final payload = <String, dynamic>{
+      'child_first_name': original.childFirstName,
+      'child_last_name': original.childLastName,
+      'parent_name': ?original.parentName,
+      'parent_phone': ?original.parentPhone,
+      'parent_email': ?original.parentEmail,
+      'workshop_type': original.workshopType,
+      'workshop_title': original.workshopTitle,
+      'demo_date': _fmt(newDate),
+      'start_time': newStartTime,
+      'end_time': ?newEndTime,
+      'trainer_id': original.trainerId,
+      'notes': ?original.notes,
+      'status': 'scheduled',
+      'created_by': createdBy,
+    };
+    final result = await _client
+        .from('demo_workshops')
+        .insert(payload)
+        .select('id')
+        .single();
+    return result['id'] as String;
   }
 
   // ── Conversion ────────────────────────────────────────────────────────────
