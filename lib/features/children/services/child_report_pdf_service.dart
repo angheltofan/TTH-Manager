@@ -54,18 +54,38 @@ class ChildReportPdfService {
           _sectionTitle('Date copil'),
           _childInfoTable(data.childInfo, bold),
           pw.SizedBox(height: 18),
-          _sectionTitle('Ateliere active'),
-          _activeWorkshopsBlock(data.activeWorkshops, bold),
+          // "Programe active" covers both workshop enrollments and
+          // Afterschool programs. The workshop-only legacy title
+          // "Ateliere active" would mislead on a mixed child.
+          _sectionTitle('Programe active'),
+          _activeProgramsBlock(
+              workshops: data.activeWorkshops,
+              afterschool: data.activeAfterschoolPrograms,
+              bold: bold),
           pw.SizedBox(height: 18),
           _sectionTitle('Situație generală'),
           _summaryBlock(data.summary, bold),
           pw.SizedBox(height: 18),
+          // Dedicated Afterschool breakdown — per program, per month.
+          // Rendered only when the child has Afterschool history, so
+          // workshop-only children keep the previous layout.
+          if (data.afterschoolMonths.isNotEmpty) ...[
+            _sectionTitle('Situație Afterschool'),
+            _afterschoolMonthsBlock(data.afterschoolMonths, bold),
+            pw.SizedBox(height: 18),
+          ],
           _sectionTitle('Istoric complet activitate'),
           _attendanceTable(data.attendanceRows, bold),
           pw.SizedBox(height: 18),
-          _sectionTitle('Istoric plăți'),
-          _paymentsTable(data.paymentRows, bold),
-          pw.SizedBox(height: 18),
+          // Payments section is hidden entirely when the child has no
+          // workshop payment cycles. Afterschool has no payment
+          // surface — the previous "Nu există plăți înregistrate"
+          // message on a pure Afterschool child was noise.
+          if (data.paymentRows.isNotEmpty) ...[
+            _sectionTitle('Istoric plăți'),
+            _paymentsTable(data.paymentRows, bold),
+            pw.SizedBox(height: 18),
+          ],
           _sectionTitle('Observații'),
           _observationsBlock(data.observations, bold, italic),
           pw.SizedBox(height: 24),
@@ -283,52 +303,73 @@ class ChildReportPdfService {
     );
   }
 
-  pw.Widget _activeWorkshopsBlock(
-      List<ChildReportWorkshopInfo> workshops, pw.Font bold) {
-    if (workshops.isEmpty) {
-      return _muted('Nu există ateliere active.');
+  /// Unified active-programs block covering workshops + Afterschool.
+  /// Each row carries the schedule context; Afterschool rows are
+  /// tagged "Afterschool" on the sub-line so the two kinds read
+  /// clearly without needing a separate section.
+  pw.Widget _activeProgramsBlock({
+    required List<ChildReportWorkshopInfo> workshops,
+    required List<ChildReportAfterschoolProgramInfo> afterschool,
+    required pw.Font bold,
+  }) {
+    if (workshops.isEmpty && afterschool.isEmpty) {
+      return _muted('Nu există programe active.');
     }
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         for (final w in workshops)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 6),
-            child: pw.Row(
+          _programRow(title: w.title, subtitle: _workshopScheduleLine(w), bold: bold),
+        for (final p in afterschool)
+          _programRow(
+            title: p.programName,
+            subtitle: _afterschoolScheduleLine(p),
+            bold: bold,
+          ),
+      ],
+    );
+  }
+
+  pw.Widget _programRow({
+    required String title,
+    required String subtitle,
+    required pw.Font bold,
+  }) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 6),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Container(
+            width: 4,
+            height: 4,
+            margin: const pw.EdgeInsets.only(top: 4, right: 8),
+            decoration: const pw.BoxDecoration(
+              color: PdfColors.black,
+              shape: pw.BoxShape.circle,
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Container(
-                  width: 4,
-                  height: 4,
-                  margin: const pw.EdgeInsets.only(top: 4, right: 8),
-                  decoration: const pw.BoxDecoration(
-                    color: PdfColors.black,
-                    shape: pw.BoxShape.circle,
-                  ),
+                pw.Text(
+                  title,
+                  style: pw.TextStyle(fontSize: 10, font: bold),
                 ),
-                pw.Expanded(
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        w.title,
-                        style: pw.TextStyle(fontSize: 10, font: bold),
-                      ),
-                      pw.SizedBox(height: 1),
-                      pw.Text(
-                        _workshopScheduleLine(w),
-                        style: pw.TextStyle(
-                          fontSize: 9,
-                          color: PdfColors.grey700,
-                        ),
-                      ),
-                    ],
+                pw.SizedBox(height: 1),
+                pw.Text(
+                  subtitle,
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    color: PdfColors.grey700,
                   ),
                 ),
               ],
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -337,18 +378,110 @@ class ChildReportPdfService {
       return _muted('Nu există activitate înregistrată.');
     }
     final rate = (s.attendanceRate * 100).toStringAsFixed(0);
-    final rows = <List<String>>[
-      ['Total ședințe', '${s.totalSessions}'],
-      ['Prezențe', '${s.presentCount}'],
-      ['Absențe', '${s.absentCount}'],
-      if (s.motivatedCount > 0) ['Motivate', '${s.motivatedCount}'],
-      ['Rată participare', '$rate%'],
-      ['Total ateliere frecventate', '${s.totalWorkshops}'],
-      ['Total cicluri de plată', '${s.totalPaymentCycles}'],
-      ['Plăți confirmate', '${s.confirmedPayments}'],
-      ['Plăți restante', '${s.overduePayments}'],
-    ];
+    final rows = <List<String>>[];
+    if (s.hasWorkshopActivity) {
+      rows.addAll([
+        ['Total ședințe ateliere', '${s.totalSessions}'],
+        ['Prezențe ateliere', '${s.presentCount}'],
+        ['Absențe ateliere', '${s.absentCount}'],
+        if (s.motivatedCount > 0) ['Motivate', '${s.motivatedCount}'],
+        ['Rată participare ateliere', '$rate%'],
+        ['Total ateliere frecventate', '${s.totalWorkshops}'],
+        ['Total cicluri de plată', '${s.totalPaymentCycles}'],
+        ['Plăți confirmate', '${s.confirmedPayments}'],
+        ['Plăți restante', '${s.overduePayments}'],
+      ]);
+    }
+    if (s.hasAfterschoolActivity) {
+      rows.addAll([
+        ['Programe Afterschool', '${s.afterschoolProgramsCount}'],
+        ['Prezențe Afterschool', '${s.afterschoolPresentCount}'],
+        if (s.afterschoolAbsentCount > 0)
+          ['Absențe Afterschool', '${s.afterschoolAbsentCount}'],
+        if (s.afterschoolUnmarkedCount > 0)
+          ['Zile nemarcate Afterschool', '${s.afterschoolUnmarkedCount}'],
+        if (s.afterschoolPlannedCount > 0)
+          ['Zile planificate rămase', '${s.afterschoolPlannedCount}'],
+        if (s.afterschoolLastPresenceDate != null)
+          ['Ultima prezență Afterschool',
+              _formatDate(s.afterschoolLastPresenceDate!)],
+      ]);
+    }
     return _twoColumnList(rows, bold);
+  }
+
+  /// Per-(program, month) Afterschool attendance table. Grouped by
+  /// program with the newest month first inside each group — same
+  /// semantics as the UI's child-detail Afterschool panel.
+  pw.Widget _afterschoolMonthsBlock(
+      List<ChildReportAfterschoolMonth> months, pw.Font bold) {
+    if (months.isEmpty) {
+      return _muted('Nu există activitate Afterschool înregistrată.');
+    }
+    // Group by program while preserving the pre-sorted "newest month
+    // first" order inside each group.
+    final grouped = <String, List<ChildReportAfterschoolMonth>>{};
+    final programOrder = <String>[];
+    for (final m in months) {
+      final key = m.programName;
+      final existing = grouped[key];
+      if (existing == null) {
+        programOrder.add(key);
+        grouped[key] = [m];
+      } else {
+        existing.add(m);
+      }
+    }
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < programOrder.length; i++) ...[
+          if (i > 0) pw.SizedBox(height: 10),
+          pw.Text(
+            programOrder[i],
+            style: pw.TextStyle(
+              font: bold,
+              fontSize: 11,
+              color: PdfColors.blueGrey800,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          _afterschoolMonthTable(grouped[programOrder[i]]!, bold),
+        ],
+      ],
+    );
+  }
+
+  pw.Widget _afterschoolMonthTable(
+      List<ChildReportAfterschoolMonth> rows, pw.Font bold) {
+    final headers = ['Lună', 'Prezențe', 'Prezent', 'Absent', 'Planificate', 'Ultima prezență'];
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+      columnWidths: const {
+        0: pw.FlexColumnWidth(1.6),
+        1: pw.FixedColumnWidth(55),
+        2: pw.FixedColumnWidth(50),
+        3: pw.FixedColumnWidth(50),
+        4: pw.FixedColumnWidth(72),
+        5: pw.FixedColumnWidth(82),
+      },
+      children: [
+        _headerRow(headers, bold),
+        for (final r in rows)
+          pw.TableRow(
+            children: [
+              _tdSmall(_monthLabel(r.year, r.month)),
+              _tdSmall('${r.present} / ${r.expected}'),
+              _tdSmall('${r.present}'),
+              _tdSmall('${r.absent}'),
+              _tdSmall('${r.plannedFuture}'),
+              _tdSmall(r.lastPresenceDate != null
+                  ? _formatDate(r.lastPresenceDate!)
+                  : '—'),
+            ],
+          ),
+      ],
+    );
   }
 
   pw.Widget _attendanceTable(
@@ -521,6 +654,24 @@ class ChildReportPdfService {
   }
 
   // ── Formatting helpers ─────────────────────────────────────────────────────
+
+  String _afterschoolScheduleLine(ChildReportAfterschoolProgramInfo p) {
+    final parts = <String>['Afterschool'];
+    if (p.daysOfWeekLabel.isNotEmpty && p.daysOfWeekLabel != '—') {
+      parts.add(p.daysOfWeekLabel);
+    }
+    final time = _timeRange(p.startTime, p.endTime);
+    if (time.isNotEmpty) parts.add(time);
+    return parts.join(' · ');
+  }
+
+  String _monthLabel(int year, int month) {
+    const names = [
+      'Ianuarie', 'Februarie', 'Martie', 'Aprilie', 'Mai', 'Iunie',
+      'Iulie', 'August', 'Septembrie', 'Octombrie', 'Noiembrie', 'Decembrie',
+    ];
+    return '${names[month - 1]} $year';
+  }
 
   String _workshopScheduleLine(ChildReportWorkshopInfo w) {
     final parts = <String>[];

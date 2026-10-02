@@ -3,11 +3,22 @@
 /// All fields are pre-resolved display values — no UUIDs, no raw nulls.
 /// The PDF service consumes this directly; it never reaches back into the
 /// database. The repository is the single integration point.
+///
+/// Afterschool participation is a first-class part of the report:
+/// `activeAfterschoolPrograms` lists currently-enrolled programs with
+/// their schedule; `afterschoolMonths` carries per-(program, year,
+/// month) attendance snapshots computed with the SAME helper the UI
+/// uses (`computeAfterschoolMonthAttendance`), so the PDF and the
+/// child profile never disagree. Afterschool payments are
+/// deliberately NOT in the model — the product has no payment surface
+/// on Afterschool.
 class ChildActivityReportData {
   const ChildActivityReportData({
     required this.childInfo,
     required this.activeWorkshops,
+    required this.activeAfterschoolPrograms,
     required this.attendanceRows,
+    required this.afterschoolMonths,
     required this.paymentRows,
     required this.observations,
     required this.summary,
@@ -16,7 +27,19 @@ class ChildActivityReportData {
 
   final ChildReportChildInfo childInfo;
   final List<ChildReportWorkshopInfo> activeWorkshops;
+
+  /// Afterschool programs the child is currently enrolled in. Empty
+  /// for workshop-only children.
+  final List<ChildReportAfterschoolProgramInfo> activeAfterschoolPrograms;
+
+  /// Workshop attendance rows + Afterschool attendance rows merged
+  /// into a single history, sorted newest first by the repository.
   final List<ChildReportAttendanceRow> attendanceRows;
+
+  /// Per-(program, year, month) Afterschool attendance snapshots, in
+  /// descending calendar order with the newest month first.
+  final List<ChildReportAfterschoolMonth> afterschoolMonths;
+
   final List<ChildReportPaymentRow> paymentRows;
   final List<ChildReportObservation> observations;
   final ChildReportSummary summary;
@@ -137,16 +160,25 @@ class ChildReportSummary {
     required this.totalPaymentCycles,
     required this.confirmedPayments,
     required this.overduePayments,
+    required this.afterschoolPresentCount,
+    required this.afterschoolAbsentCount,
+    required this.afterschoolUnmarkedCount,
+    required this.afterschoolPlannedCount,
+    required this.afterschoolProgramsCount,
+    this.afterschoolLastPresenceDate,
   });
 
-  /// Count of attendance rows considered (`present` + `absent` + `motivated`).
+  /// Count of workshop attendance rows considered (`present` +
+  /// `absent` + `motivated`).
   final int totalSessions;
   final int presentCount;
   final int absentCount;
   final int motivatedCount;
 
-  /// 0.0–1.0 (presentCount / totalSessions). Null-safe: zero when no
-  /// sessions are recorded, so the PDF can format unconditionally.
+  /// 0.0–1.0 (presentCount / totalSessions) for WORKSHOPS. Null-safe:
+  /// zero when no workshop sessions are recorded, so the PDF can
+  /// format unconditionally. Afterschool has its own ratios surfaced
+  /// per-month inside the SITUAȚIE AFTERSCHOOL section.
   final double attendanceRate;
 
   /// Distinct workshop series the child has ever attended (by title).
@@ -155,5 +187,82 @@ class ChildReportSummary {
   final int confirmedPayments;
   final int overduePayments;
 
-  bool get hasActivity => totalSessions > 0;
+  /// Afterschool aggregates across every (program, month) the child
+  /// participated in. Future-scheduled days land in
+  /// [afterschoolPlannedCount] — they are NEVER counted as absences.
+  final int afterschoolPresentCount;
+  final int afterschoolAbsentCount;
+  final int afterschoolUnmarkedCount;
+  final int afterschoolPlannedCount;
+
+  /// Distinct Afterschool programs the child has ever participated in.
+  final int afterschoolProgramsCount;
+
+  /// Most recent past-or-today day the child was marked present at
+  /// any Afterschool program.
+  final DateTime? afterschoolLastPresenceDate;
+
+  bool get hasWorkshopActivity => totalSessions > 0;
+  bool get hasAfterschoolActivity =>
+      afterschoolPresentCount > 0 ||
+      afterschoolAbsentCount > 0 ||
+      afterschoolUnmarkedCount > 0 ||
+      afterschoolPlannedCount > 0 ||
+      afterschoolProgramsCount > 0;
+
+  bool get hasActivity => hasWorkshopActivity || hasAfterschoolActivity;
+}
+
+/// One Afterschool program the child is enrolled in RIGHT NOW. Carries
+/// enough schedule context to render alongside workshop entries in the
+/// "PROGRAME ACTIVE" section. Deliberately does NOT include fee /
+/// price fields — Afterschool is attendance-only in this application.
+class ChildReportAfterschoolProgramInfo {
+  const ChildReportAfterschoolProgramInfo({
+    required this.programName,
+    required this.daysOfWeekLabel,
+    required this.startTime,
+    required this.endTime,
+  });
+
+  final String programName;
+  final String daysOfWeekLabel;
+  final String startTime;
+  final String endTime;
+}
+
+/// Attendance snapshot for one (program, year, month) tuple — the
+/// same shape as `AfterschoolMonthAttendance` on the UI side, but
+/// reduced to the pre-formatted values the PDF needs.
+///
+/// Semantics (shared with the UI's Afterschool child-detail panel):
+///   * expected = past-or-today days the child was eligible for;
+///   * present + absent + unmarked = expected (invariant);
+///   * plannedFuture = future-scheduled days — NEVER an absence;
+///   * lastPresenceDate = newest past-or-today day marked present.
+class ChildReportAfterschoolMonth {
+  const ChildReportAfterschoolMonth({
+    required this.programId,
+    required this.programName,
+    required this.year,
+    required this.month,
+    required this.expected,
+    required this.present,
+    required this.absent,
+    required this.unmarked,
+    required this.plannedFuture,
+    this.lastPresenceDate,
+  });
+
+  final String programId;
+  final String programName;
+  final int year;
+  final int month;
+
+  final int expected;
+  final int present;
+  final int absent;
+  final int unmarked;
+  final int plannedFuture;
+  final DateTime? lastPresenceDate;
 }
