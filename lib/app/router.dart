@@ -32,6 +32,7 @@ import '../features/notifications/presentation/notifications_page.dart';
 import '../features/trainers/presentation/trainer_details_page.dart';
 import '../features/trainers/presentation/trainers_page.dart';
 import '../features/workshops/presentation/workshop_details_page.dart';
+import '../features/demo_workshops/domain/demo_workshop.dart';
 import '../features/demo_workshops/presentation/demo_workshop_details_page.dart';
 import '../features/demo_workshops/presentation/demo_workshop_form_page.dart';
 import '../features/demo_workshops/presentation/demos_page.dart';
@@ -390,9 +391,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/demo-workshops/:id',
-            builder: (context, state) => DemoWorkshopDetailsPage(
-              demoId: state.pathParameters['id']!,
-            ),
+            builder: (context, state) {
+              // Pass the DemoWorkshop through as `extra` so the
+              // details page can paint instantly on first frame when
+              // the caller is the Demo-uri list; the by-id provider
+              // still re-fetches in the background for freshness.
+              final initial = state.extra;
+              return DemoWorkshopDetailsPage(
+                demoId: state.pathParameters['id']!,
+                initialDemo:
+                    initial is DemoWorkshop ? initial : null,
+              );
+            },
           ),
           GoRoute(
             path: '/team-chat',

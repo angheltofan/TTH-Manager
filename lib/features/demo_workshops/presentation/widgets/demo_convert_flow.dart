@@ -89,13 +89,14 @@ Future<String?> runConvertDemoFlow({
     );
     final childId = result.childId;
 
-    // Local invalidations — realtime handles other tabs. Avoiding
-    // family-wide invalidations where exact keys are known.
+    // Local invalidations — realtime handles the cross-tab/device
+    // fan-out. Demo side scoped to the single tab the demo lives in
+    // (status flips to `converted` but demo_date doesn't change).
+    // Child/workshop side kept broad because the admin typically
+    // navigates to the new child right after and expects fresh data
+    // without waiting on realtime round-trip.
     ref.invalidate(demoWorkshopByIdProvider(demo.id));
-    ref.invalidate(todayDemoWorkshopsProvider);
-    ref.invalidate(demosForDayProvider);
-    ref.invalidate(upcomingDemosProvider);
-    ref.invalidate(historyDemosProvider);
+    invalidateDemoBucketForDate(ref, demo.demoDate);
     ref.invalidate(allChildrenProvider);
     ref.invalidate(dashboardStatsProvider);
     ref.invalidate(activeWorkshopSeriesProvider);

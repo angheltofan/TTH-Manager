@@ -14,7 +14,14 @@ import '../theme/app_theme.dart';
 ///   • Modelare 3D / Imprimare 3D         → green  (`AppColors.success`)
 ///   • Programare / AI                    → green  (`AppColors.success`)
 ///   • Desen / Pictură / Culoare          → brand blue (`AppColors.purple`)
-///   • Missing or unknown workshop type   → neutral grey (`AppColors.muted`)
+///   • Missing or unknown workshop type   → blue   (`AppColors.info`)
+///
+/// The fallback used to be neutral grey, which made children with no
+/// workshop enrollment (brand-new, Afterschool-only, lead post-demo
+/// before the enrollment query refreshes, etc.) stand out as a dead
+/// row next to the colourful rest of the list. It now matches the
+/// most common active colour (Robotică blue), so the avatar reads as
+/// a normal active child regardless of what's attached to them.
 ///
 /// The hash-by-name "random" palette that used to be the fallback was
 /// removed — it produced different colours for the same child on
@@ -41,7 +48,9 @@ class ChildAvatar extends StatelessWidget {
   /// avatar) can reuse it without duplicating the rules.
   static Color colorForWorkshopType(String? type) {
     final t = (type ?? '').toLowerCase();
-    if (t.isEmpty) return AppColors.muted;
+    // Fallback — see the class doc for why this changed from
+    // `AppColors.muted` to `AppColors.info`.
+    if (t.isEmpty) return AppColors.info;
     if (t.contains('robot')) return AppColors.info;
     if (t.contains('tales') ||
         t.contains('lectur') ||
@@ -61,7 +70,8 @@ class ChildAvatar extends StatelessWidget {
         t.contains('culoare')) {
       return AppColors.purple;
     }
-    return AppColors.muted;
+    // Unknown-but-present workshop type — still better than grey.
+    return AppColors.info;
   }
 
   @override

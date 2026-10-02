@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/date_utils.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_search_field.dart';
 import '../../../core/widgets/error_state.dart';
@@ -53,7 +55,25 @@ class _DemosPageState extends ConsumerState<DemosPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: _DemoTab.values.length, vsync: this);
+    // `animationDuration: Duration.zero` collapses the default
+    // `kTabScrollDuration` (300ms) tab-switch animation to zero. The
+    // underline still moves — it just snaps to the new tab instead of
+    // sliding — so visual tab-state parity is preserved while the
+    // content swap feels instantaneous.
+    //
+    // Why this matters: our listener guards on `!_tabs.indexIsChanging`
+    // (to avoid 60fps rebuilds during the animation). With the default
+    // duration the guard delayed `setState` by one full animation —
+    // the user tapped a tab and had to wait ~300ms before the list
+    // rendered the new bucket, even though the data was already
+    // cached. With duration zero, `indexIsChanging` goes true→false
+    // in the same frame, the listener fires once, the rebuild lands
+    // in the next frame.
+    _tabs = TabController(
+      length: _DemoTab.values.length,
+      vsync: this,
+      animationDuration: Duration.zero,
+    );
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging) setState(() {});
     });
@@ -67,6 +87,80 @@ class _DemosPageState extends ConsumerState<DemosPage>
   }
 
   _DemoTab get _currentTab => _DemoTab.values[_tabs.index];
+
+  /// Stale-while-refresh renderer. Keeps the cached list visible
+  /// during an invalidation-triggered refetch so a Prezent/Absent
+  /// click doesn't flash the entire list into a spinner. Only a
+  /// true first-load (no cached value) shows AppLoading; errors
+  /// with no cached value show AppError.
+  Widget _buildListSliver({
+    required AsyncValue<List<DemoWorkshop>> async,
+    required double horizontalPad,
+    required bool isWide,
+    required bool isAdmin,
+    required ThemeData theme,
+  }) {
+    final cached = async.valueOrNull;
+    if (cached == null) {
+      if (async.hasError) {
+        return SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: AppError(message: async.error.toString()),
+          ),
+        );
+      }
+      return const SliverToBoxAdapter(
+        child: SizedBox(height: 120, child: AppLoading()),
+      );
+    }
+    final filtered = _applySearch(cached, _search);
+    if (filtered.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding:
+              EdgeInsets.fromLTRB(horizontalPad, 8, horizontalPad, 32),
+          child: _EmptyState(
+              tab: _currentTab, hasQuery: _search.isNotEmpty),
+        ),
+      );
+    }
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(horizontalPad, 8, horizontalPad, 32),
+      sliver: SliverList(
+        delegate: SliverChildListDelegate([
+          if (isWide) ...[
+            const _DemosTableHeader(),
+            Divider(
+              height: 1,
+              color: theme.colorScheme.outline.withValues(alpha: 0.25),
+            ),
+          ],
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: filtered.length,
+            separatorBuilder: (_, _) => Divider(
+              height: 1,
+              indent: 16,
+              endIndent: 16,
+              color: theme.colorScheme.outline.withValues(alpha: 0.18),
+            ),
+            // Stable per-demo key so Flutter can diff the list in
+            // place rather than rebuilding every row when a single
+            // status flips.
+            itemBuilder: (_, i) => _DemoEntry(
+              key: ValueKey(filtered[i].id),
+              demo: filtered[i],
+              isWide: isWide,
+              isAdmin: isAdmin,
+              tab: _currentTab,
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,14 +185,21 @@ class _DemosPageState extends ConsumerState<DemosPage>
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 1000;
+          // 16-px gutter on phones (matches Afterschool), 24-px
+          // gutter on tablet/desktop (matches Copii).
+          final horizontalPad = context.isMobile ? 16.0 : 24.0;
           return CustomScrollView(
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                padding: EdgeInsets.fromLTRB(
+                    horizontalPad,
+                    context.isMobile ? 20 : 24,
+                    horizontalPad,
+                    0),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
                     _DemosHeader(isAdmin: isAdmin),
-                    const SizedBox(height: 16),
+                    SizedBox(height: context.isMobile ? 14 : 16),
                     SizedBox(
                       width: isWide ? 320 : double.infinity,
                       child: AppSearchField(
@@ -107,7 +208,7 @@ class _DemosPageState extends ConsumerState<DemosPage>
                         onChanged: (v) => setState(() => _search = v),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: context.isMobile ? 10 : 16),
                     _DemosTabBar(
                       controller: _tabs,
                       todayCount: todayAsync.valueOrNull?.length,
@@ -117,64 +218,18 @@ class _DemosPageState extends ConsumerState<DemosPage>
                   ]),
                 ),
               ),
-              currentAsync.when(
-                loading: () => const SliverToBoxAdapter(
-                  child: SizedBox(height: 120, child: AppLoading()),
-                ),
-                error: (e, _) => SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: AppError(message: e.toString()),
-                  ),
-                ),
-                data: (demos) {
-                  final filtered = _applySearch(demos, _search);
-                  if (filtered.isEmpty) {
-                    return SliverToBoxAdapter(
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                        child: _EmptyState(
-                            tab: _currentTab,
-                            hasQuery: _search.isNotEmpty),
-                      ),
-                    );
-                  }
-                  return SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        if (isWide) ...[
-                          const _DemosTableHeader(),
-                          Divider(
-                            height: 1,
-                            color: theme.colorScheme.outline
-                                .withValues(alpha: 0.25),
-                          ),
-                        ],
-                        ListView.separated(
-                          shrinkWrap: true,
-                          physics:
-                              const NeverScrollableScrollPhysics(),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, _) => Divider(
-                            height: 1,
-                            indent: 16,
-                            endIndent: 16,
-                            color: theme.colorScheme.outline
-                                .withValues(alpha: 0.18),
-                          ),
-                          itemBuilder: (_, i) => _DemoEntry(
-                            demo: filtered[i],
-                            isWide: isWide,
-                            isAdmin: isAdmin,
-                            tab: _currentTab,
-                          ),
-                        ),
-                      ]),
-                    ),
-                  );
-                },
+              // Stale-while-refresh: render the cached list even
+              // while an invalidation-triggered refetch is in flight,
+              // so the user never sees the list flash to a spinner
+              // after a mutation. True-first-load (no cached value
+              // yet) still shows AppLoading. Errors with no cached
+              // value show AppError.
+              _buildListSliver(
+                async: currentAsync,
+                horizontalPad: horizontalPad,
+                isWide: isWide,
+                isAdmin: isAdmin,
+                theme: theme,
               ),
             ],
           );
@@ -225,46 +280,86 @@ class _DemosHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    // Narrow (< `kMobileBreakpoint`): stack title above the CTA so
+    // "Demo-uri" never wraps and the subtitle gets the full width.
+    // Wide: current approved desktop layout — icon + title on the
+    // left, CTA on the right (same shape as [ChildrenPageHeader]).
+    final isMobile = context.isMobile;
+
+    final iconBadge = Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: AppColors.purple.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.rocket_launch_outlined,
+          color: AppColors.purple, size: 22),
+    );
+
+    final titleColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: AppColors.purple.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
+        Text(
+          'Demo-uri',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
           ),
-          child: const Icon(Icons.rocket_launch_outlined,
-              color: AppColors.purple, size: 22),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Demo-uri',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              Text(
-                'Gestionează demo-urile și urmărește evoluția lor.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
+        Text(
+          'Gestionează demo-urile și urmărește evoluția lor.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
           ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
-        if (isAdmin)
-          AppPrimaryButton(
+      ],
+    );
+
+    final action = isAdmin
+        ? AppPrimaryButton(
             label: 'Programează demo',
             icon: Icons.add_rounded,
             onPressed: () => context.go('/demo-workshops/new'),
+          )
+        : null;
+
+    if (isMobile) {
+      // Row 1 — icon + title column (full width minus icon).
+      // Row 2 — natural-width CTA aligned left, matches the Afterschool
+      // mobile header pattern so Demo-uri uses the same visual rhythm.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              iconBadge,
+              const SizedBox(width: 12),
+              Expanded(child: titleColumn),
+            ],
           ),
+          if (action != null) ...[
+            const SizedBox(height: 12),
+            Align(alignment: Alignment.centerLeft, child: action),
+          ],
+        ],
+      );
+    }
+
+    // Desktop/tablet — unchanged from the approved layout.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        iconBadge,
+        const SizedBox(width: 14),
+        Expanded(child: titleColumn),
+        ?action,
       ],
     );
   }
@@ -340,6 +435,9 @@ class _DemosTableHeader extends StatelessWidget {
       letterSpacing: 0.5,
     );
     // Column flex values must stay in sync with [_WideRow] below.
+    // Trainer column removed — the released space goes mostly to
+    // DATA · ORA (which now carries the weekday prefix) and secondarily
+    // to COPIL · PĂRINTE.
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       child: Row(
@@ -347,8 +445,7 @@ class _DemosTableHeader extends StatelessWidget {
           const SizedBox(width: 48),
           Expanded(flex: 4, child: Text('COPIL · PĂRINTE', style: style)),
           Expanded(flex: 3, child: Text('ATELIER', style: style)),
-          Expanded(flex: 3, child: Text('DATA · ORA', style: style)),
-          Expanded(flex: 2, child: Text('TRAINER', style: style)),
+          Expanded(flex: 4, child: Text('DATA · ORA', style: style)),
           SizedBox(width: 90, child: Text('STATUS', style: style)),
           const SizedBox(width: 44),
         ],
@@ -361,6 +458,7 @@ class _DemosTableHeader extends StatelessWidget {
 
 class _DemoEntry extends ConsumerStatefulWidget {
   const _DemoEntry({
+    super.key,
     required this.demo,
     required this.isWide,
     required this.isAdmin,
@@ -385,10 +483,12 @@ class _DemoEntryState extends ConsumerState<_DemoEntry> {
       await ref
           .read(demoWorkshopsRepositoryProvider)
           .updateStatus(widget.demo.id, status);
-      ref.invalidate(demosForDayProvider);
-      ref.invalidate(upcomingDemosProvider);
-      ref.invalidate(historyDemosProvider);
-      ref.invalidate(todayDemoWorkshopsProvider);
+      // Scoped invalidation — a status change doesn't move the demo
+      // between tabs (date unchanged), so only the demo's own bucket
+      // needs to refetch. Was 5 providers; now 2 (bucket + by-id).
+      // Realtime still fans out to other tabs/devices via
+      // `rt:demo_workshops`.
+      invalidateDemoBucketForDate(ref, widget.demo.demoDate);
       ref.invalidate(demoWorkshopByIdProvider(widget.demo.id));
     } catch (e) {
       if (mounted) {
@@ -428,13 +528,46 @@ class _DemoEntryState extends ConsumerState<_DemoEntry> {
   }
 
   void _openDetails() {
-    context.push('/demo-workshops/${widget.demo.id}');
+    // Pass the demo as `extra` so the details page can paint its
+    // info card immediately on first frame, instead of showing a
+    // spinner while the by-id provider refetches the same row.
+    context.push('/demo-workshops/${widget.demo.id}', extra: widget.demo);
   }
 
   @override
   Widget build(BuildContext context) {
     final kind = _demoKind(widget.demo);
-    final actions = _DemoActions(
+
+    if (widget.isWide) {
+      // Desktop keeps the current approved behaviour: inline
+      // Prezent/Absent chips next to the ⋯ menu for Astăzi + scheduled.
+      final actions = _DemoActions(
+        busy: _busy,
+        isAdmin: widget.isAdmin,
+        kind: kind,
+        tab: widget.tab,
+        status: widget.demo.status,
+        hasChild: widget.demo.convertedChildId != null,
+        onPresent: () => _setStatus('completed'),
+        onAbsent: () => _setStatus('no_show'),
+        onCancel: () => _setStatus('cancelled'),
+        onConvert: _convert,
+        onReschedule: _reschedule,
+        onOpenChild: _openChild,
+      );
+      return _WideRow(
+        demo: widget.demo,
+        kind: kind,
+        actions: actions,
+        onTap: widget.demo.isConverted ? _openChild : _openDetails,
+      );
+    }
+
+    // Mobile — the ⋯ sits inline on the trainer line (compact,
+    // bottom-right). Prezent/Absent live as menu items AND, for the
+    // Astăzi + scheduled case, as a thin second-row of inline chips
+    // below the card body so operational marking stays one-tap.
+    final menuActions = _DemoActions(
       busy: _busy,
       isAdmin: widget.isAdmin,
       kind: kind,
@@ -447,20 +580,19 @@ class _DemoEntryState extends ConsumerState<_DemoEntry> {
       onConvert: _convert,
       onReschedule: _reschedule,
       onOpenChild: _openChild,
+      showInline: false,
     );
-
-    if (widget.isWide) {
-      return _WideRow(
-        demo: widget.demo,
-        kind: kind,
-        actions: actions,
-        onTap: widget.demo.isConverted ? _openChild : _openDetails,
-      );
-    }
+    final showInlineRow = widget.isAdmin &&
+        !_busy &&
+        widget.tab == _DemoTab.today &&
+        widget.demo.status == 'scheduled';
     return _NarrowCard(
       demo: widget.demo,
       kind: kind,
-      actions: actions,
+      menuActions: menuActions,
+      showInlineTodayRow: showInlineRow,
+      onPresent: () => _setStatus('completed'),
+      onAbsent: () => _setStatus('no_show'),
       onTap: widget.demo.isConverted ? _openChild : _openDetails,
     );
   }
@@ -487,7 +619,6 @@ class _WideRow extends StatelessWidget {
     final parentLine = _parentLine(demo);
     final atelier = _ateliereLabel(demo);
     final dateTime = _dateTimeLabel(demo);
-    final trainer = demo.trainerName ?? '—';
 
     return InkWell(
       onTap: onTap,
@@ -501,7 +632,14 @@ class _WideRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            ChildAvatar(name: demo.childFullName, size: 36),
+            // workshopType drives the avatar tint — same convention
+            // as the Children list, so a Robotică demo lead reads as
+            // the same blue family as the enrolled Robotică roster.
+            ChildAvatar(
+              name: demo.childFullName,
+              size: 36,
+              workshopType: demo.workshopType,
+            ),
             const SizedBox(width: 12),
             Expanded(
               flex: 4,
@@ -538,20 +676,11 @@ class _WideRow extends StatelessWidget {
               ),
             ),
             Expanded(
-              flex: 3,
+              flex: 4,
               child: Text(
                 dateTime,
                 style: theme.textTheme.bodySmall,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                trainer,
-                style: theme.textTheme.bodySmall,
-                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -589,12 +718,27 @@ class _NarrowCard extends StatelessWidget {
   const _NarrowCard({
     required this.demo,
     required this.kind,
-    required this.actions,
+    required this.menuActions,
+    required this.showInlineTodayRow,
+    required this.onPresent,
+    required this.onAbsent,
     required this.onTap,
   });
   final DemoWorkshop demo;
   final _DemoKind kind;
-  final _DemoActions actions;
+
+  /// Compact ⋯ menu widget — built with `showInline: false` so
+  /// Prezent/Absent are folded into it. Sits on the trailing edge of
+  /// the trainer line, no isolated action row.
+  final Widget menuActions;
+
+  /// True for Astăzi + scheduled rows — adds a thin, left-aligned
+  /// Prezent/Absent chip row below the card body so operational
+  /// marking stays one-tap on phone.
+  final bool showInlineTodayRow;
+
+  final VoidCallback onPresent;
+  final VoidCallback onAbsent;
   final VoidCallback onTap;
 
   @override
@@ -604,10 +748,19 @@ class _NarrowCard extends StatelessWidget {
     final parentLine = _parentLine(demo);
     final atelier = _ateliereLabel(demo);
     final dateTime = _dateTimeLabel(demo);
-    final trainer = demo.trainerName;
 
     final metaStyle = theme.textTheme.bodySmall
         ?.copyWith(color: theme.colorScheme.outline);
+
+    // Gesture-isolation wrapper for anything interactive inside the
+    // card. HitTestBehavior.opaque swallows taps on the surrounding
+    // padding so a near-miss on an action never leaks to the card's
+    // InkWell and opens the details page by accident.
+    Widget tapGuard(Widget child) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {},
+          child: child,
+        );
 
     return InkWell(
       onTap: onTap,
@@ -615,44 +768,96 @@ class _NarrowCard extends StatelessWidget {
           theme.colorScheme.outline.withValues(alpha: 0.05),
       mouseCursor: SystemMouseCursors.click,
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
+        // Reduced from 14 → h:14 / v:10 so more demos fit per screen.
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                ChildAvatar(name: demo.childFullName, size: 36),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    demo.childFullName,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                StatusPill(label: statusLabel, color: statusColor),
-              ],
+            ChildAvatar(
+              name: demo.childFullName,
+              size: 36,
+              workshopType: demo.workshopType,
             ),
-            const SizedBox(height: 8),
-            Text(atelier, style: metaStyle),
-            Text(dateTime, style: metaStyle),
-            if (parentLine != null) Text(parentLine, style: metaStyle),
-            if (trainer != null && trainer.isNotEmpty)
-              Text('Trainer: $trainer', style: metaStyle),
-            const SizedBox(height: 8),
-            // Same gesture isolation as the desktop row — the empty
-            // space between the actions and the card edge is
-            // absorbed here so a tap never leaks to the card's
-            // InkWell and opens the details page unintentionally.
-            Align(
-              alignment: Alignment.centerRight,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-                child: actions,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Line 1 — name (expanded) + status pill. The pill
+                  // never overlaps the name because the Expanded
+                  // absorbs long names into an ellipsis.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          demo.childFullName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      StatusPill(label: statusLabel, color: statusColor),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(atelier,
+                      style: metaStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(dateTime,
+                      style: metaStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  // Parent · phone line is also where the ⋯ menu sits
+                  // on mobile — no separate "Trainer: ..." line and
+                  // no empty action block below. Keeps the card tight.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          parentLine ?? '',
+                          style: metaStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      tapGuard(menuActions),
+                    ],
+                  ),
+                  // Thin second-row of Prezent/Absent chips — only for
+                  // Astăzi + scheduled, since those are the frequent
+                  // operational actions a trainer touches multiple
+                  // times a day.
+                  if (showInlineTodayRow) ...[
+                    const SizedBox(height: 6),
+                    tapGuard(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _InlineActionButton(
+                            icon: Icons.check_rounded,
+                            color: AppColors.success,
+                            tooltip: 'Marchează prezent',
+                            onTap: onPresent,
+                          ),
+                          const SizedBox(width: 6),
+                          _InlineActionButton(
+                            icon: Icons.close_rounded,
+                            color: AppColors.warning,
+                            tooltip: 'Marchează absent',
+                            onTap: onAbsent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
@@ -678,6 +883,7 @@ class _DemoActions extends StatelessWidget {
     required this.onConvert,
     required this.onReschedule,
     required this.onOpenChild,
+    this.showInline = true,
   });
 
   final bool busy;
@@ -692,6 +898,13 @@ class _DemoActions extends StatelessWidget {
   final VoidCallback onConvert;
   final VoidCallback onReschedule;
   final VoidCallback onOpenChild;
+
+  /// When true (desktop default) the "Astăzi + scheduled" case renders
+  /// Prezent/Absent as inline chips next to the ⋯ menu. When false
+  /// (mobile), Prezent/Absent are always folded into the menu so the
+  /// trailing slot is just the 32×32 ⋯ — the caller renders a
+  /// separate thin inline-action row below the card body if needed.
+  final bool showInline;
 
   @override
   Widget build(BuildContext context) {
@@ -731,10 +944,14 @@ class _DemoActions extends StatelessWidget {
       return const SizedBox(width: 32, height: 32);
     }
 
-    // Today + unmarked scheduled: inline Prezent/Absent + menu with
-    // the rest. Everything else collapses into the menu.
+    final splitInline =
+        showInline && tab == _DemoTab.today && status == 'scheduled';
+
+    // Menu items. When inline Prezent/Absent chips are rendered next
+    // to the menu, drop them from the menu; otherwise fold them in so
+    // mobile users still have one-tap access through ⋯.
     final menuItems = <_ActionItem>[
-      if (!(tab == _DemoTab.today && status == 'scheduled')) ...[
+      if (!splitInline) ...[
         _ActionItem(
           value: 'present',
           icon: Icons.check_rounded,
@@ -777,7 +994,7 @@ class _DemoActions extends StatelessWidget {
 
     final menu = _DemoActionsMenu(tooltip: 'Acțiuni', items: menuItems);
 
-    if (tab == _DemoTab.today && status == 'scheduled') {
+    if (splitInline) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1041,9 +1258,10 @@ String _ateliereLabel(DemoWorkshop d) =>
     '${d.workshopTitle} · ${d.workshopType}';
 
 String _dateTimeLabel(DemoWorkshop d) {
-  final date =
-      '${d.demoDate.day.toString().padLeft(2, '0')}.'
-      '${d.demoDate.month.toString().padLeft(2, '0')}.${d.demoDate.year}';
+  // Example: "Miercuri, 30.09.2026 · 17:00–18:30".
+  // Weekday is derived from `demo_date` client-side via the shared
+  // formatter — no new DB column.
+  final date = formatDateWithWeekday(d.demoDate);
   final start =
       d.startTime.length >= 5 ? d.startTime.substring(0, 5) : d.startTime;
   final end =

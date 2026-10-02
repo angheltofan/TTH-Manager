@@ -4,6 +4,21 @@ String formatDate(DateTime date) {
   return '$d.$m.${date.year}';
 }
 
+/// Romanian weekday name for a date — "Luni" through "Duminică".
+/// `DateTime.weekday` is 1 (Mon) .. 7 (Sun).
+String weekdayNameRo(DateTime date) {
+  const names = [
+    'Luni', 'Marți', 'Miercuri', 'Joi', 'Vineri', 'Sâmbătă', 'Duminică',
+  ];
+  return names[date.weekday - 1];
+}
+
+/// "Miercuri, 30.09.2026" — compact weekday + numeric date used by
+/// the Demo list and any surface that wants the weekday context
+/// without the long month name.
+String formatDateWithWeekday(DateTime date) =>
+    '${weekdayNameRo(date)}, ${formatDate(date)}';
+
 String formatDateLong(DateTime date) {
   const months = [
     'ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie',

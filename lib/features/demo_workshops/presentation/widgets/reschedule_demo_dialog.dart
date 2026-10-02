@@ -103,13 +103,13 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
             newEndTime: _fmtTime(_end),
             createdBy: userId,
           );
-      // Realtime will fan out to other tabs; same-tab needs explicit
-      // invalidation. The original row is untouched so its providers
-      // stay valid; only the new row's buckets need refreshing.
-      ref.invalidate(todayDemoWorkshopsProvider);
-      ref.invalidate(demosForDayProvider);
-      ref.invalidate(upcomingDemosProvider);
-      ref.invalidate(historyDemosProvider);
+      // Reschedule is a strict INSERT — the original row is NOT
+      // touched, so its tab stays valid. Only the NEW row's bucket
+      // (upcoming / today / history, picked from _date) needs to
+      // refetch. Dashboard count follows the new row too. Was 5
+      // providers; now 1-2 + dashboardStats. Realtime handles the
+      // cross-device fan-out.
+      invalidateDemoBucketForDate(ref, _date);
       ref.invalidate(dashboardStatsProvider);
       if (mounted) Navigator.of(context).pop(newId);
     } catch (e) {

@@ -15,8 +15,19 @@ import 'widgets/reschedule_demo_dialog.dart';
 // ── DemoWorkshopDetailsPage ───────────────────────────────────────────────────
 
 class DemoWorkshopDetailsPage extends ConsumerStatefulWidget {
-  const DemoWorkshopDetailsPage({super.key, required this.demoId});
+  const DemoWorkshopDetailsPage({
+    super.key,
+    required this.demoId,
+    this.initialDemo,
+  });
   final String demoId;
+
+  /// Pre-loaded demo row supplied by the Demo-uri list via GoRouter
+  /// `extra`, so the info card paints on first frame instead of
+  /// showing a spinner while the by-id provider re-fetches. When
+  /// null (deep link, Dashboard shortcut, cold navigation) the page
+  /// falls back to the loading state as before.
+  final DemoWorkshop? initialDemo;
 
   @override
   ConsumerState<DemoWorkshopDetailsPage> createState() =>
@@ -94,6 +105,13 @@ class _DemoWorkshopDetailsPageState
     final isAdmin = profile?.isAdmin ?? false;
     final theme = Theme.of(context);
 
+    // Prefer the provider's fresh value, fall back to the extra
+    // supplied by the caller so the first frame renders instantly
+    // when the user came from the Demo-uri list. Only show the
+    // spinner on a true cold load (deep link / Dashboard shortcut
+    // with no caller-supplied demo).
+    final demo = demoAsync.valueOrNull ?? widget.initialDemo;
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -106,39 +124,40 @@ class _DemoWorkshopDetailsPageState
         ),
         title: const Text('Demo atelier'),
       ),
-      body: demoAsync.when(
-        loading: () => const AppLoading(),
-        error: (e, _) => Center(child: AppError(message: e.toString())),
-        data: (demo) {
-          if (demo == null) {
-            return const Center(child: Text('Demo-ul nu a fost găsit.'));
+      body: Builder(builder: (context) {
+        if (demo == null) {
+          if (demoAsync.hasError) {
+            return Center(
+                child: AppError(message: demoAsync.error.toString()));
           }
-          return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _DemoInfoCard(demo: demo),
-                const SizedBox(height: 20),
-                if (isAdmin && demo.isScheduled) ...[
-                  _AdminActionsCard(
-                    demo: demo,
-                    busy: _busy,
-                    onMarkCompleted: () =>
-                        _setStatus('completed', 'Finalizat'),
-                    onMarkNoShow: () =>
-                        _setStatus('no_show', 'Absent'),
-                    onCancel: () => _setStatus('cancelled', 'Anulat'),
-                    onConvert: () => _convert(demo),
-                    onReschedule: () => _reschedule(demo),
-                  ),
-                ],
-                if (!demo.isScheduled)
-                  _StatusBanner(status: demo.status),
-              ],
+          return const AppLoading();
+        }
+        return _buildBody(context, demo, isAdmin);
+      }),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, DemoWorkshop demo, bool isAdmin) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DemoInfoCard(demo: demo),
+          const SizedBox(height: 20),
+          if (isAdmin && demo.isScheduled) ...[
+            _AdminActionsCard(
+              demo: demo,
+              busy: _busy,
+              onMarkCompleted: () => _setStatus('completed', 'Finalizat'),
+              onMarkNoShow: () => _setStatus('no_show', 'Absent'),
+              onCancel: () => _setStatus('cancelled', 'Anulat'),
+              onConvert: () => _convert(demo),
+              onReschedule: () => _reschedule(demo),
             ),
-          );
-        },
+          ],
+          if (!demo.isScheduled) _StatusBanner(status: demo.status),
+        ],
       ),
     );
   }

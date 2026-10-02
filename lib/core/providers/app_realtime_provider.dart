@@ -353,7 +353,12 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
 
   // ── 8. demo_workshops ────────────────────────────────────────────────────
   //
-  // Keeps today's demo list and demo detail pages in sync.
+  // Keeps today's demo list and demo detail pages in sync. The
+  // callback uses the row's `demo_date` to invalidate only the tab
+  // the demo belongs to (today / upcoming / history) instead of
+  // firing four Supabase SELECTs on every DB event. For UPDATEs
+  // where the date itself changed (rare — a demo would normally be
+  // rescheduled via INSERT), both the old and new buckets refresh.
   final demoChannel = client
       .channel('rt:demo_workshops')
       .onPostgresChanges(
@@ -366,15 +371,38 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           if (kDebugMode) {
             debugPrint('[RT] demo_workshops → ${payload.eventType} id=$id');
           }
-          ref.invalidate(todayDemoWorkshopsProvider);
-          ref.invalidate(demosForDayProvider);
-          ref.invalidate(upcomingDemosProvider);
-          ref.invalidate(historyDemosProvider);
+
+          final affected = <DateTime>{};
+          final newDateStr = _str(payload.newRecord, 'demo_date');
+          final oldDateStr = _str(payload.oldRecord, 'demo_date');
+          final newDate =
+              newDateStr == null ? null : DateTime.tryParse(newDateStr);
+          final oldDate =
+              oldDateStr == null ? null : DateTime.tryParse(oldDateStr);
+          if (newDate != null) affected.add(newDate);
+          if (oldDate != null && oldDate != newDate) {
+            affected.add(oldDate);
+          }
+
+          if (affected.isEmpty) {
+            // Payload didn't carry `demo_date` (shouldn't happen —
+            // demo_date is NOT NULL) — fall back to the broad
+            // behaviour so we never miss an update.
+            ref.invalidate(todayDemoWorkshopsProvider);
+            ref.invalidate(demosForDayProvider);
+            ref.invalidate(upcomingDemosProvider);
+            ref.invalidate(historyDemosProvider);
+          } else {
+            for (final d in affected) {
+              invalidateDemoBucketForDateFromRef(ref, d);
+            }
+          }
           ref.invalidate(dashboardStatsProvider);
           if (id != null) {
             ref.invalidate(demoWorkshopByIdProvider(id));
             if (kDebugMode) {
-              debugPrint('[RT] demo_workshops: demoWorkshopByIdProvider($id) invalidated');
+              debugPrint(
+                  '[RT] demo_workshops: demoWorkshopByIdProvider($id) invalidated');
             }
           }
         },

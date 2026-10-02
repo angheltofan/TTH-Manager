@@ -92,3 +92,60 @@ final activeSeriesForDemoProvider =
       .watch(demoWorkshopsRepositoryProvider)
       .fetchActiveSeriesForDemo();
 });
+
+// ── Scoped invalidation helpers ──────────────────────────────────────────────
+//
+// A single demo lives in exactly one of the three Demo-uri tabs,
+// determined by `demo_date` vs today. Status changes, convert and
+// per-day attendance updates do not move it between tabs. These
+// helpers invalidate only the tab the demo actually lives in,
+// instead of the previous "invalidate all four" pattern that fired
+// four Supabase SELECTs per mutation (one for each tab/dashboard
+// provider).
+//
+// Realtime still fans out broadly for cross-device safety — this is
+// about the initiating client's local round-trip cost.
+
+/// Returns the bucket a demo on [date] belongs to, relative to today.
+enum DemoBucket { today, upcoming, history }
+
+DemoBucket demoBucketFor(DateTime date, [DateTime? todayOverride]) {
+  final n = todayOverride ?? DateTime.now();
+  final today = DateTime(n.year, n.month, n.day);
+  final day = DateTime(date.year, date.month, date.day);
+  if (day.isAfter(today)) return DemoBucket.upcoming;
+  if (day.isAtSameMomentAs(today)) return DemoBucket.today;
+  return DemoBucket.history;
+}
+
+/// Invalidate the single provider that backs the Demo-uri tab the
+/// demo on [date] is currently rendered in — plus
+/// [todayDemoWorkshopsProvider] when the demo is today (for the
+/// Dashboard "Ateliere azi" section).
+void invalidateDemoBucketForDate(WidgetRef ref, DateTime date) {
+  switch (demoBucketFor(date)) {
+    case DemoBucket.today:
+      ref.invalidate(demosForDayProvider(DemosDayKey.fromDate(date)));
+      ref.invalidate(todayDemoWorkshopsProvider);
+    case DemoBucket.upcoming:
+      ref.invalidate(upcomingDemosProvider);
+    case DemoBucket.history:
+      ref.invalidate(historyDemosProvider);
+  }
+}
+
+/// Ref-based variant used from inside Riverpod providers (notably the
+/// `rt:demo_workshops` realtime callback). Identical semantics to
+/// [invalidateDemoBucketForDate]; takes a plain `Ref` because the
+/// realtime callback has no `WidgetRef`.
+void invalidateDemoBucketForDateFromRef(Ref ref, DateTime date) {
+  switch (demoBucketFor(date)) {
+    case DemoBucket.today:
+      ref.invalidate(demosForDayProvider(DemosDayKey.fromDate(date)));
+      ref.invalidate(todayDemoWorkshopsProvider);
+    case DemoBucket.upcoming:
+      ref.invalidate(upcomingDemosProvider);
+    case DemoBucket.history:
+      ref.invalidate(historyDemosProvider);
+  }
+}
