@@ -46,3 +46,5 @@ app.*.map.json
 
 # Inno Setup output directory — installer binaries go to web/downloads/.
 /installer_output/
+.vercel
+.env*

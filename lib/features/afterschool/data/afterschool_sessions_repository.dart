@@ -52,6 +52,29 @@ is_closed, closed_reason, closed_by, closed_at, created_at
         .toList();
   }
 
+  /// All sessions in `[from, to]` across EVERY program, ordered by
+  /// date ASC then program ASC. One query per visible calendar
+  /// range — replaces per-program-per-day roll-up on the admin
+  /// Activity Calendar.
+  ///
+  /// RLS: `afs_sessions_select_staff` grants staff a view of every
+  /// row; the staff dashboard is the only reader.
+  Future<List<AfterschoolSession>> fetchForDateRange({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final data = await _client
+        .from('afterschool_sessions')
+        .select(_selectCols)
+        .gte('session_date', _dateOnly(from))
+        .lte('session_date', _dateOnly(to))
+        .order('session_date')
+        .order('program_id');
+    return (data as List)
+        .map((e) => AfterschoolSession.fromMap(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Materialises missing sessions in `[from, to]` for one program.
   /// Idempotent (unique index on program_id + session_date). Returns
   /// the number of new rows inserted.

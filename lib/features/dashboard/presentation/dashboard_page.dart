@@ -10,6 +10,7 @@ import '../../demo_workshops/providers/demo_workshops_providers.dart';
 import '../../notifications/providers/notifications_providers.dart';
 import '../../team_chat/presentation/widgets/chat_fab.dart';
 import '../providers/dashboard_providers.dart';
+import 'widgets/activity_calendar_section.dart';
 import 'widgets/all_workshops_card.dart';
 import 'widgets/dashboard_header.dart';
 import 'widgets/dashboard_stat_grid.dart';
@@ -162,6 +163,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   );
                 },
               ),
+
+              const SizedBox(height: 24),
+              const ActivityCalendarSection(),
 
               const SizedBox(height: 8),
             ],

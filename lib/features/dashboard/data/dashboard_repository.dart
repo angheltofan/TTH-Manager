@@ -67,15 +67,23 @@ class DashboardRepository {
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     // Sunday of the current week
     final sunday = DateTime(monday.year, monday.month, monday.day + 6);
+    return getScheduledWorkshopsBetween(monday, sunday);
+  }
 
+  /// Scheduled workshops in the inclusive date range [from, to].
+  /// Dashboard Activity Calendar entry point — same `dashboard_workshops`
+  /// view, same ordering, just a parameterised window.
+  Future<List<DashboardWorkshop>> getScheduledWorkshopsBetween(
+    DateTime from,
+    DateTime to,
+  ) async {
     String fmtDate(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
     final data = await _client
         .from('dashboard_workshops')
         .select()
-        .gte('workshop_date', fmtDate(monday))
-        .lte('workshop_date', fmtDate(sunday))
+        .gte('workshop_date', fmtDate(from))
+        .lte('workshop_date', fmtDate(to))
         .order('workshop_date')
         .order('start_time');
     return (data as List)

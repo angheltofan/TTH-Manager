@@ -7,6 +7,7 @@ import '../../features/auth/providers/auth_providers.dart';
 import '../../features/children/providers/attendance_calendar_providers.dart';
 import '../../features/children/providers/child_details_providers.dart';
 import '../../features/children/providers/children_providers.dart';
+import '../../features/dashboard/providers/activity_calendar_providers.dart';
 import '../../features/dashboard/providers/dashboard_providers.dart';
 import '../../features/demo_workshops/providers/demo_workshops_providers.dart';
 import '../../features/notifications/providers/notifications_providers.dart';
@@ -145,6 +146,9 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           ref.invalidate(allScheduledWorkshopsProvider);
           ref.invalidate(workshopsListProvider);
           ref.invalidate(dashboardStatsProvider);
+          // Dashboard Activity Calendar — invalidating the family
+          // drops every cached week so the next watch recomputes.
+          ref.invalidate(activityCalendarProvider);
           if (id != null) {
             ref.invalidate(workshopByIdProvider(id));
             ref.invalidate(workshopDetailsProvider(id));
@@ -398,6 +402,9 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
             }
           }
           ref.invalidate(dashboardStatsProvider);
+          // Dashboard Activity Calendar — any demo change affects
+          // some visible range.
+          ref.invalidate(activityCalendarProvider);
           if (id != null) {
             ref.invalidate(demoWorkshopByIdProvider(id));
             if (kDebugMode) {
@@ -471,6 +478,8 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           // New / closed / reopened sessions change which days are
           // eligible in the child-details panel — invalidate family.
           ref.invalidate(afterschoolMonthAttendanceProvider);
+          // Dashboard Activity Calendar.
+          ref.invalidate(activityCalendarProvider);
         },
       )
       .subscribe((status, [error]) {

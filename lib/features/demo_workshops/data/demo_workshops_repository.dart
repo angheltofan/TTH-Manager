@@ -66,6 +66,20 @@ class DemoWorkshopsRepository {
   static bool isDashboardTodayVisible(String status) =>
       status != 'cancelled';
 
+  /// Every demo in the inclusive [from, to] date window. Added for
+  /// the dashboard Activity Calendar — one query per visible week
+  /// instead of 7 per-day calls.
+  Future<List<DemoWorkshop>> getBetween(DateTime from, DateTime to) async {
+    final data = await _client
+        .from('demo_workshops')
+        .select(_select)
+        .gte('demo_date', _fmt(from))
+        .lte('demo_date', _fmt(to))
+        .order('demo_date')
+        .order('start_time');
+    return _mapList(data);
+  }
+
   /// Every demo on [date], regardless of status. Powers the Demo-uri
   /// "Astăzi" tab — a demo marked `completed` / `no_show` / `converted`
   /// stays visible with its outcome shown as a status pill.
