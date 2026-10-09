@@ -28,6 +28,12 @@ class ActivityCalendarSection extends ConsumerStatefulWidget {
       _ActivityCalendarSectionState();
 }
 
+/// Shared TapRegion group for the mobile tap preview. Every cell AND
+/// the overlay tooltip opt into this group, so a tap on any cell is
+/// treated as "inside" (preventing dismiss-then-reopen glitches) and
+/// only taps elsewhere on the dashboard fire `onTapOutside`.
+final Object _mobileTapRegionGroup = Object();
+
 class _ActivityCalendarSectionState
     extends ConsumerState<ActivityCalendarSection> {
   late DateTime _mondayAnchor;
@@ -117,31 +123,22 @@ class _ActivityCalendarSectionState
     DateTime day,
     Map<DateTime, List<CalendarActivity>> byDay,
   ) {
-    final items = byDay[day] ?? const <CalendarActivity>[];
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.8,
-          ),
-          child: DayPreviewPanel(day: day, activities: items),
-        ),
-      ),
-    );
+    // Toggle-close when the user taps the already-previewed day.
+    if (_previewDay == day) {
+      _dismissPreview(immediate: true);
+      return;
+    }
+    _dismissPreview(immediate: true);
+    _showPreview(day, byDay, isMobile: true);
   }
 
-  // ── Preview overlay (desktop) ───────────────────────────────────
+  // ── Preview overlay (shared across desktop + mobile) ────────────
 
   void _showPreview(
     DateTime day,
-    Map<DateTime, List<CalendarActivity>> byDay,
-  ) {
+    Map<DateTime, List<CalendarActivity>> byDay, {
+    bool isMobile = false,
+  }) {
     _dismissPreview(immediate: true);
     _previewDay = day;
     final items = byDay[day] ?? const <CalendarActivity>[];
@@ -150,8 +147,13 @@ class _ActivityCalendarSectionState
         day: day,
         activities: items,
         cellKey: _cellKeys[day.difference(_mondayAnchor).inDays],
-        onEnter: _onPreviewEnter,
-        onExit: _onPreviewExit,
+        // Hover handlers are desktop-only; mobile taps don't need
+        // enter/exit grace timers because dismiss is driven by
+        // TapRegion.onTapOutside + explicit toggle.
+        onEnter: isMobile ? null : _onPreviewEnter,
+        onExit: isMobile ? null : _onPreviewExit,
+        tapRegionGroupId: isMobile ? _mobileTapRegionGroup : null,
+        onTapOutside: isMobile ? _dismissPreview : null,
       ),
     );
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -360,7 +362,8 @@ class _WeekRow extends StatelessWidget {
         LayoutBuilder(
           builder: (ctx, constraints) {
             final cellWidth = constraints.maxWidth / 7;
-            const cellHeight = 92.0;
+            // Compact mobile cells; preserve desktop height.
+            final cellHeight = isMobile ? 56.0 : 92.0;
             return SizedBox(
               height: cellHeight,
               child: Row(
@@ -450,73 +453,122 @@ class _CalendarCell extends StatelessWidget {
         : theme.textTheme.bodyMedium?.color;
     final counts = _countsByCategory(activities);
 
+    // Compact mobile cell: centered day number + a single row of
+    // small category dots (no numeric count badge, no overlapping
+    // UI). Desktop keeps the current denser layout.
+    final cellBody = isMobile
+        ? Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${day.day}',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
+                  color: dayNumberColor,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 6,
+                child: hasAny
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (counts.workshop > 0)
+                            const _MobileDot(color: AppColors.purple),
+                          if (counts.demo > 0) ...[
+                            if (counts.workshop > 0)
+                              const SizedBox(width: 3),
+                            const _MobileDot(color: AppColors.demoBadge),
+                          ],
+                          if (counts.afterschool > 0) ...[
+                            if (counts.workshop > 0 || counts.demo > 0)
+                              const SizedBox(width: 3),
+                            const _MobileDot(color: AppColors.success),
+                          ],
+                        ],
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '${day.day}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
+                      color: dayNumberColor,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (hasAny)
+                    Text(
+                      '${activities.length}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              if (hasAny)
+                Wrap(
+                  spacing: 3,
+                  runSpacing: 3,
+                  children: [
+                    if (counts.workshop > 0)
+                      _CategoryDot(
+                        color: AppColors.purple,
+                        count: counts.workshop,
+                      ),
+                    if (counts.demo > 0)
+                      _CategoryDot(
+                        color: AppColors.demoBadge,
+                        count: counts.demo,
+                      ),
+                    if (counts.afterschool > 0)
+                      _CategoryDot(
+                        color: AppColors.success,
+                        count: counts.afterschool,
+                      ),
+                  ],
+                ),
+            ],
+          );
+
     final cell = Material(
       color: bg,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.all(6),
+        padding: EdgeInsets.all(isMobile ? 4 : 6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: border, width: 1),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  '${day.day}',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
-                    color: dayNumberColor,
-                  ),
-                ),
-                const Spacer(),
-                if (hasAny)
-                  Text(
-                    '${activities.length}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-              ],
-            ),
-            const Spacer(),
-            if (hasAny)
-              Wrap(
-                spacing: 3,
-                runSpacing: 3,
-                children: [
-                  if (counts.workshop > 0)
-                    _CategoryDot(
-                      color: AppColors.purple,
-                      count: counts.workshop,
-                    ),
-                  if (counts.demo > 0)
-                    _CategoryDot(
-                      color: AppColors.demoBadge,
-                      count: counts.demo,
-                    ),
-                  if (counts.afterschool > 0)
-                    _CategoryDot(
-                      color: AppColors.success,
-                      count: counts.afterschool,
-                    ),
-                ],
-              ),
-          ],
-        ),
+        child: cellBody,
       ),
     );
 
     return Padding(
-      padding: const EdgeInsets.all(2),
+      padding: EdgeInsets.all(isMobile ? 1.5 : 2),
       child: isMobile
-          ? GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onTapMobile(day),
-              child: cell,
+          ? TapRegion(
+              // Same group as the mobile tooltip so tapping between
+              // cells is "inside" and never fires onTapOutside — the
+              // InkWell on the new cell handles the swap directly.
+              groupId: _mobileTapRegionGroup,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onTapMobile(day),
+                child: cell,
+              ),
             )
           : MouseRegion(
               cursor: SystemMouseCursors.basic,
@@ -524,6 +576,22 @@ class _CalendarCell extends StatelessWidget {
               onExit: (_) => onExit(),
               child: cell,
             ),
+    );
+  }
+}
+
+/// 5-px mobile category marker. Matches the TTH palette without
+/// introducing a second visual language — simpler than
+/// `_CategoryDot` which also has the pill-with-count form.
+class _MobileDot extends StatelessWidget {
+  const _MobileDot({required this.color});
+  final Color color;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 5,
+      height: 5,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
@@ -641,15 +709,25 @@ class _HoverPreviewLayer extends StatelessWidget {
     required this.day,
     required this.activities,
     required this.cellKey,
-    required this.onEnter,
-    required this.onExit,
+    this.onEnter,
+    this.onExit,
+    this.tapRegionGroupId,
+    this.onTapOutside,
   });
 
   final DateTime day;
   final List<CalendarActivity> activities;
   final GlobalKey cellKey;
-  final VoidCallback onEnter;
-  final VoidCallback onExit;
+
+  /// Hover (desktop) handlers. Null on mobile.
+  final VoidCallback? onEnter;
+  final VoidCallback? onExit;
+
+  /// When set, wraps the tooltip in a `TapRegion` of this group and
+  /// listens for outside taps. Used by the mobile tap preview — a
+  /// tap on any other dashboard widget dismisses the tooltip.
+  final Object? tapRegionGroupId;
+  final VoidCallback? onTapOutside;
 
   @override
   Widget build(BuildContext context) {
@@ -666,14 +744,30 @@ class _HoverPreviewLayer extends StatelessWidget {
       ancestor: overlayBox,
     );
     final cellRect = cellOrigin & cellBox.size;
+
+    Widget tooltip = DayPreviewPanel(day: day, activities: activities);
+    final enter = onEnter;
+    final exit = onExit;
+    if (enter != null && exit != null) {
+      tooltip = MouseRegion(
+        onEnter: (_) => enter(),
+        onExit: (_) => exit(),
+        child: tooltip,
+      );
+    }
+    final group = tapRegionGroupId;
+    final outside = onTapOutside;
+    if (group != null) {
+      tooltip = TapRegion(
+        groupId: group,
+        onTapOutside: outside == null ? null : (_) => outside(),
+        child: tooltip,
+      );
+    }
     return Positioned.fill(
       child: CustomSingleChildLayout(
         delegate: _TooltipLayoutDelegate(cellRect: cellRect),
-        child: MouseRegion(
-          onEnter: (_) => onEnter(),
-          onExit: (_) => onExit(),
-          child: DayPreviewPanel(day: day, activities: activities),
-        ),
+        child: tooltip,
       ),
     );
   }

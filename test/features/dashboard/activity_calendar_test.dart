@@ -40,10 +40,14 @@ Future<void> _pumpSection(
   Map<DateTime, List<CalendarActivity>> fixture, {
   Size viewportSize = const Size(1280, 800),
 }) async {
-  tester.view.physicalSize = viewportSize * tester.view.devicePixelRatio;
+  // Pin devicePixelRatio to 1 so `viewportSize` is also the logical size
+  // that MediaQuery exposes (test harness defaults to DPR 3.0).
+  tester.view.physicalSize = viewportSize;
   tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -342,6 +346,198 @@ void main() {
             'Overlay height=${overlaySize.height}, '
             'preview bottom=${previewRect.bottom}',
       );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Mobile tap preview — floating tooltip, no bottom sheet, no
+  // backdrop. Covers the four target widths from the brief.
+  // ───────────────────────────────────────────────────────────────
+  group('Mobile tap preview', () {
+    for (final width in [320.0, 375.0, 390.0, 430.0]) {
+      testWidgets('width $width: all seven day numbers remain visible',
+          (tester) async {
+        final today = DateTime.now();
+        final todayKey = DateTime(today.year, today.month, today.day);
+        await _pumpSection(
+          tester,
+          {
+            todayKey: [
+              _mk(CalendarActivityCategory.workshop, todayKey,
+                  start: '17:00', title: 'Mobile-Act'),
+            ],
+          },
+          viewportSize: Size(width, 720),
+        );
+        final mon = _mondayOfToday();
+        for (var i = 0; i < 7; i++) {
+          final d = mon.add(Duration(days: i));
+          expect(find.text('${d.day}'), findsAtLeastNWidgets(1),
+              reason: 'Day ${d.day} missing at width $width');
+        }
+      });
+    }
+
+    testWidgets('tap opens the floating preview — no modal / bottom sheet',
+        (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            _mk(CalendarActivityCategory.workshop, todayKey,
+                start: '17:00', title: 'Mobile-Act'),
+          ],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsOneWidget);
+      expect(find.text('Mobile-Act'), findsOneWidget);
+      // CRITICAL: the OLD implementation used `showModalBottomSheet`
+      // which inserts a `BottomSheet` widget + a modal `ModalBarrier`.
+      // Neither must appear.
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+    });
+
+    testWidgets('tap outside dismisses the mobile preview', (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            _mk(CalendarActivityCategory.workshop, todayKey,
+                start: '17:00', title: 'Mobile-Act'),
+          ],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsOneWidget);
+      // Legend "Ateliere" text is outside the tooltip and outside
+      // any cell TapRegion group member → onTapOutside fires.
+      await tester.tap(find.text('Ateliere'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsNothing);
+    });
+
+    testWidgets('tapping the same day a second time closes it',
+        (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            _mk(CalendarActivityCategory.workshop, todayKey, title: 'X'),
+          ],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsOneWidget);
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsNothing);
+    });
+
+    testWidgets('tapping a different day swaps the preview', (tester) async {
+      final mon = _mondayOfToday();
+      final wed = mon.add(const Duration(days: 2));
+      await _pumpSection(
+        tester,
+        {
+          mon: [_mk(CalendarActivityCategory.workshop, mon, title: 'LUN-M')],
+          wed: [_mk(CalendarActivityCategory.demo, wed, title: 'MIE-M')],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${mon.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.text('LUN-M'), findsOneWidget);
+      await tester.tap(find.text('${wed.day}').first);
+      await tester.pumpAndSettle();
+      expect(find.text('MIE-M'), findsOneWidget);
+      expect(find.text('LUN-M'), findsNothing);
+    });
+
+    testWidgets('mobile preview is clamped inside the overlay',
+        (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            for (var i = 0; i < 6; i++)
+              _mk(CalendarActivityCategory.workshop, todayKey,
+                  start: '${8 + i}:00', title: 'Slot $i'),
+          ],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      final rect = tester.getRect(find.byType(DayPreviewPanel));
+      final overlayBox = find.byType(Overlay).evaluate().first
+          .findRenderObject() as RenderBox;
+      final size = overlayBox.size;
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(size.width));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.bottom, lessThanOrEqualTo(size.height));
+    });
+
+    testWidgets('activity rows in the mobile preview do NOT navigate',
+        (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            _mk(CalendarActivityCategory.workshop, todayKey,
+                start: '17:00', title: 'Nav-Test'),
+          ],
+        },
+        viewportSize: const Size(390, 720),
+      );
+      await tester.tap(find.text('${today.day}').first);
+      await tester.pumpAndSettle();
+      final inkInsidePanel = find.descendant(
+        of: find.byType(DayPreviewPanel),
+        matching: find.byType(InkWell),
+      );
+      expect(inkInsidePanel, findsNothing);
+    });
+  });
+
+  group('Desktop behavior remains the hover-driven path (regression)', () {
+    testWidgets('hover (not tap) opens the preview at desktop width',
+        (tester) async {
+      final today = DateTime.now();
+      final todayKey = DateTime(today.year, today.month, today.day);
+      await _pumpSection(
+        tester,
+        {
+          todayKey: [
+            _mk(CalendarActivityCategory.workshop, todayKey,
+                title: 'DesktopOK'),
+          ],
+        },
+        viewportSize: const Size(1280, 800),
+      );
+      final gesture = await _createMouseGesture(tester);
+      await gesture.moveTo(tester.getCenter(find.text('${today.day}').first));
+      await tester.pumpAndSettle();
+      expect(find.byType(DayPreviewPanel), findsOneWidget);
+      expect(find.text('DesktopOK'), findsOneWidget);
     });
   });
 }
