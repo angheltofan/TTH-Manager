@@ -14,6 +14,7 @@ import 'widgets/assigned_workshops_card.dart';
 import 'widgets/attendance_payments/attendance_payments_section.dart';
 import 'widgets/child_info_card.dart';
 import 'widgets/generate_child_report_button.dart';
+import 'widgets/parcurs_tth_card.dart';
 
 class ChildDetailsPage extends ConsumerStatefulWidget {
   const ChildDetailsPage({super.key, required this.childId});
@@ -79,7 +80,14 @@ class _ChildDetailsPageState extends ConsumerState<ChildDetailsPage> {
                 ),
                 SizedBox(height: context.sectionGap),
 
-                // 2. Atelierele la care vine (enrollment management)
+                // 2. Parcurs TTH — admin + trainer edit level/progress.
+                //    Parents never see this surface (Parent Portal is a
+                //    separate stack); the write path is gated by a
+                //    SECURITY DEFINER RPC regardless.
+                ParcursTthCard(child: child),
+                SizedBox(height: context.sectionGap),
+
+                // 3. Atelierele la care vine (enrollment management)
                 AssignedWorkshopsCard(childId: widget.childId),
                 SizedBox(height: context.sectionGap),
 

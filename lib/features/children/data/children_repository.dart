@@ -1,4 +1,4 @@
-﻿import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/child_row.dart';
 
@@ -16,6 +16,8 @@ class Child {
     this.notes,
     this.isActive,
     this.paymentType = 'paid',
+    this.currentLevel,
+    this.levelProgress,
   });
 
   final String id;
@@ -29,20 +31,30 @@ class Child {
   final bool? isActive;
   final String paymentType;
 
+  /// `children.current_level` — one of 'Explorer' / 'Builder' /
+  /// 'Programmer' / 'Architect', or null when the child has not been
+  /// placed yet. See `LearningLevel.tryParse` for a typed wrapper.
+  final String? currentLevel;
+
+  /// `children.level_progress` — 0..100, or null when not placed.
+  final int? levelProgress;
+
   factory Child.fromMap(Map<String, dynamic> m) => Child(
-        id: m['id'] as String,
-        firstName: m['first_name'] as String? ?? '',
-        lastName: m['last_name'] as String? ?? '',
-        birthDate: m['birth_date'] != null
-            ? DateTime.tryParse(m['birth_date'] as String)
-            : null,
-        age: (m['age'] as num?)?.toInt(),
-        parentName: m['parent_name'] as String?,
-        parentPhone: m['parent_phone'] as String?,
-        notes: m['notes'] as String?,
-        isActive: m['is_active'] as bool?,
-        paymentType: (m['payment_type'] as String?) ?? 'paid',
-      );
+    id: m['id'] as String,
+    firstName: m['first_name'] as String? ?? '',
+    lastName: m['last_name'] as String? ?? '',
+    birthDate: m['birth_date'] != null
+        ? DateTime.tryParse(m['birth_date'] as String)
+        : null,
+    age: (m['age'] as num?)?.toInt(),
+    parentName: m['parent_name'] as String?,
+    parentPhone: m['parent_phone'] as String?,
+    notes: m['notes'] as String?,
+    isActive: m['is_active'] as bool?,
+    paymentType: (m['payment_type'] as String?) ?? 'paid',
+    currentLevel: m['current_level'] as String?,
+    levelProgress: (m['level_progress'] as num?)?.toInt(),
+  );
 }
 
 class ChildrenRepository {
@@ -56,7 +68,8 @@ class ChildrenRepository {
     final childData = await _client
         .from('children')
         .select(
-            '*, workshop_enrollments!child_id(is_active, workshop_series!series_id(id, title, workshop_type, day_of_week, start_time, end_time, trainer_id, is_active, archived_at))')
+          '*, workshop_enrollments!child_id(is_active, workshop_series!series_id(id, title, workshop_type, day_of_week, start_time, end_time, trainer_id, is_active, archived_at))',
+        )
         .order('last_name');
 
     // Latest attendance per child comes from the `child_latest_attendance`
@@ -82,8 +95,11 @@ class ChildrenRepository {
       final map = e as Map<String, dynamic>;
       final id = map['id'] as String;
       final att = lastAttMap[id];
-      return ChildRow.fromMap(map,
-          lastAttStatus: att?.status, lastAttDate: att?.date);
+      return ChildRow.fromMap(
+        map,
+        lastAttStatus: att?.status,
+        lastAttDate: att?.date,
+      );
     }).toList();
   }
 
@@ -93,7 +109,8 @@ class ChildrenRepository {
     final data = await _client
         .from('children')
         .select(
-            '*, workshop_enrollments!child_id(is_active, workshop_series!series_id(id, title, workshop_type, day_of_week, start_time, end_time, trainer_id, is_active, archived_at))')
+          '*, workshop_enrollments!child_id(is_active, workshop_series!series_id(id, title, workshop_type, day_of_week, start_time, end_time, trainer_id, is_active, archived_at))',
+        )
         .eq('id', id)
         .maybeSingle();
     if (data == null) return null;
@@ -127,10 +144,7 @@ class ChildrenRepository {
   }) async {
     final result = await _client.rpc(
       'count_weekly_present_attendance',
-      params: {
-        'p_from': from,
-        'p_to': to,
-      },
+      params: {'p_from': from, 'p_to': to},
     );
     return (result as num?)?.toInt() ?? 0;
   }
@@ -138,8 +152,7 @@ class ChildrenRepository {
   // ── Simple CRUD ───────────────────────────────────────────────────────────
 
   Future<List<Child>> getAll() async {
-    final data =
-        await _client.from('children').select().order('last_name');
+    final data = await _client.from('children').select().order('last_name');
     return (data as List)
         .map((e) => Child.fromMap(e as Map<String, dynamic>))
         .toList();
@@ -160,6 +173,38 @@ class ChildrenRepository {
 
   Future<void> update(String id, Map<String, dynamic> data) async {
     await _client.from('children').update(data).eq('id', id);
+  }
+
+  /// Writes the two TTH learning fields on a child.
+  ///
+  /// Backed by the `set_child_learning_level(uuid, text, int)` RPC
+  /// (SECURITY DEFINER, gated by `is_staff()`). The RPC updates only
+  /// `current_level` and `level_progress` — no other column can be
+  /// mutated through this surface, so trainers do not need a broader
+  /// children UPDATE policy. Parents are refused server-side.
+  ///
+  /// Returns the updated row as a [Child] so the caller can refresh
+  /// state without a separate SELECT round-trip.
+  Future<Child> setLearningLevel({
+    required String childId,
+    required String? currentLevel,
+    required int? levelProgress,
+  }) async {
+    final result = await _client.rpc(
+      'set_child_learning_level',
+      params: {
+        'p_child_id': childId,
+        'p_current_level': currentLevel,
+        'p_level_progress': levelProgress,
+      },
+    );
+    // The RPC returns `public.children` — PostgREST serializes it as
+    // a single object. Tolerate both the single-object and
+    // single-element-list shapes defensively.
+    final map = result is List
+        ? (result.first as Map<String, dynamic>)
+        : (result as Map<String, dynamic>);
+    return Child.fromMap(map);
   }
 
   /// Soft-deactivates a child (archive flow).

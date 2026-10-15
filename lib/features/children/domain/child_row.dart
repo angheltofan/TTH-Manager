@@ -14,6 +14,8 @@ class ChildRow {
     this.notes,
     this.isActive,
     this.paymentType = 'paid',
+    this.currentLevel,
+    this.levelProgress,
     required this.workshops,
     this.lastAttStatus,
     this.lastAttDate,
@@ -31,6 +33,14 @@ class ChildRow {
 
   /// 'paid' or 'free'. Defaults to 'paid' when the column is unavailable.
   final String paymentType;
+
+  /// `children.current_level` — 'Explorer' / 'Builder' / 'Programmer'
+  /// / 'Architect', or null when the child has not been placed yet.
+  final String? currentLevel;
+
+  /// `children.level_progress` — 0..100, or null when not placed.
+  final int? levelProgress;
+
   final List<ChildWorkshopSummary> workshops;
 
   /// Most-recent recorded attendance status: 'present', 'absent', 'motivated'
@@ -81,6 +91,8 @@ class ChildRow {
       notes: map['notes'] as String?,
       isActive: map['is_active'] as bool?,
       paymentType: (map['payment_type'] as String?) ?? 'paid',
+      currentLevel: map['current_level'] as String?,
+      levelProgress: (map['level_progress'] as num?)?.toInt(),
       workshops: workshops,
       lastAttStatus: lastAttStatus,
       lastAttDate: lastAttDate,

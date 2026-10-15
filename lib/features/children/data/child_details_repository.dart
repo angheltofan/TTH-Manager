@@ -15,12 +15,21 @@ class ChildDetailsRepository {
 
   // ── Fetch a single child by ID ────────────────────────────────────────────
 
+  /// Column projection used by [fetchChildById]. Kept visible so
+  /// regression tests can assert that the TTH learning fields are in
+  /// the SELECT — a model carrying `currentLevel` / `levelProgress`
+  /// is useless when the SELECT does not request `current_level` /
+  /// `level_progress`. That was the Phase 2 "Parcurs TTH does not
+  /// persist in the UI" bug.
+  static const String childByIdSelectCols =
+      'id, first_name, last_name, birth_date, '
+      'parent_name, parent_phone, notes, is_active, payment_type, '
+      'current_level, level_progress';
+
   Future<ChildModel?> fetchChildById(String childId) async {
     final data = await _client
         .from('children')
-        .select(
-            'id, first_name, last_name, birth_date, '
-            'parent_name, parent_phone, notes, is_active, payment_type')
+        .select(childByIdSelectCols)
         .eq('id', childId)
         .maybeSingle();
     return data != null ? ChildModel.fromMap(data) : null;
