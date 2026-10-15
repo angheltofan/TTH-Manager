@@ -17,6 +17,10 @@ class WorkshopDetailRow {
     this.parentName,
     this.attendanceStatus,
     this.attendanceObservation,
+    this.creditedSeriesId,
+    this.visitorRegularDayOfWeek,
+    this.visitorRegularStartTime,
+    this.visitorRegularSeriesTitle,
   });
 
   final String workshopId;
@@ -44,6 +48,22 @@ class WorkshopDetailRow {
   final String? attendanceStatus;
   final String? attendanceObservation;
 
+  /// Non-null when this attendance row carries a billing-credit override
+  /// (= "Prezență în altă grupă" / visitor). The physical scheduled
+  /// workshop is this row's own [workshopId]; the credited series
+  /// receives the four-session cycle credit instead.
+  final String? creditedSeriesId;
+
+  /// Visitor label fields — the regular group the child is enrolled in.
+  final String? visitorRegularDayOfWeek;
+  final String? visitorRegularStartTime;
+  final String? visitorRegularSeriesTitle;
+
+  /// A row that was NOT in the enrolled roster but has an attendance
+  /// against this physical session with [creditedSeriesId] pointing at
+  /// the child's actual enrollment. Rendered with the "Altă grupă" badge.
+  bool get isVisitor => creditedSeriesId != null;
+
   /// True when this scheduled workshop was created from (or attached
   /// to) a recurring series. Used to gate the hard-delete action —
   /// recurring instances must only be cancelled.
@@ -70,6 +90,10 @@ class WorkshopDetailRow {
       parentName: map['parent_name'] as String?,
       attendanceStatus: map['attendance_status'] as String?,
       attendanceObservation: map['attendance_observation'] as String?,
+      creditedSeriesId: map['credited_series_id'] as String?,
+      visitorRegularDayOfWeek: map['visitor_regular_day_of_week'] as String?,
+      visitorRegularStartTime: map['visitor_regular_start_time'] as String?,
+      visitorRegularSeriesTitle: map['visitor_regular_series_title'] as String?,
     );
   }
 }

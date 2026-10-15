@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/feature_flags.dart';
 import '../../dashboard/domain/dashboard_workshop.dart';
 import '../domain/scheduled_workshop.dart';
+import '../domain/visitor_candidate.dart';
 import '../domain/workshop_detail_row.dart';
 
 /// Reason a cancel call refused. Lets the UI render a friendly message
@@ -147,14 +149,59 @@ class WorkshopsRepository {
     }
 
     // 3. Attendance for THIS specific workshop occurrence
+    //    Includes `credited_series_id` so visitors ("Prezență în altă
+    //    grupă") can be surfaced alongside the enrolled roster. The
+    //    column is only present once migration 20261014 has run — the
+    //    SELECT shape depends on the feature flag so legacy schemas
+    //    don't trigger PostgrestException 42703.
     final attData = await _client
         .from('attendance')
-        .select('child_id, status, observation')
+        .select(
+          kFlexibleAttendanceCreditEnabled
+              ? 'child_id, status, observation, credited_series_id'
+              : 'child_id, status, observation',
+        )
         .eq('scheduled_workshop_id', workshopId);
 
     final attMap = <String, Map<String, dynamic>>{};
     for (final row in (attData as List)) {
       attMap[row['child_id'] as String] = row as Map<String, dynamic>;
+    }
+
+    // 3b. Visitor rows — children present in this physical session but
+    //     NOT in the enrolled roster of this series. Resolve their
+    //     regular group (the credited series' day/time) for the badge
+    //     subtitle. One query that includes credited series metadata
+    //     plus child name — no fan-out per child.
+    //     Entirely skipped when the credit column is not shipped.
+    final visitorChildIds = <String>[];
+    if (kFlexibleAttendanceCreditEnabled) {
+      for (final row in (attData as List)) {
+        final cid = row['child_id'] as String?;
+        final credited = row['credited_series_id'] as String?;
+        if (cid != null && credited != null && !childMap.containsKey(cid)) {
+          visitorChildIds.add(cid);
+        }
+      }
+    }
+    final Map<String, Map<String, dynamic>> visitorMeta = {};
+    if (visitorChildIds.isNotEmpty) {
+      final visitorRows = await _client
+          .from('attendance')
+          .select(
+            'child_id, credited_series_id, '
+            'children!child_id(id, first_name, last_name), '
+            'workshop_series!credited_series_id'
+            '(id, title, day_of_week, start_time)',
+          )
+          .eq('scheduled_workshop_id', workshopId)
+          .inFilter('child_id', visitorChildIds);
+      for (final row in (visitorRows as List)) {
+        final cid = row['child_id'] as String?;
+        if (cid != null) {
+          visitorMeta[cid] = row as Map<String, dynamic>;
+        }
+      }
     }
 
     // 4. Trainer name
@@ -196,11 +243,12 @@ class WorkshopsRepository {
       ];
     }
 
-    return childMap.entries.map((entry) {
+    final rows = <WorkshopDetailRow>[];
+    for (final entry in childMap.entries) {
       final childId = entry.key;
       final child = entry.value;
       final att = attMap[childId];
-      return WorkshopDetailRow(
+      rows.add(WorkshopDetailRow(
         workshopId: wsId,
         title: title,
         workshopType: workshopType,
@@ -216,8 +264,165 @@ class WorkshopsRepository {
         childLastName: child['last_name'] as String?,
         attendanceStatus: att?['status'] as String?,
         attendanceObservation: att?['observation'] as String?,
-      );
-    }).toList();
+      ));
+    }
+
+    // Append visitor rows (children present on this physical session
+    // whose billing credit flows elsewhere via credited_series_id).
+    for (final cid in visitorChildIds) {
+      final meta = visitorMeta[cid];
+      final att = attMap[cid];
+      final childBlock = meta?['children'] as Map<String, dynamic>?;
+      final seriesBlock = meta?['workshop_series'] as Map<String, dynamic>?;
+      rows.add(WorkshopDetailRow(
+        workshopId: wsId,
+        title: title,
+        workshopType: workshopType,
+        workshopDate: workshopDate,
+        dayOfWeek: dayOfWeek,
+        startTime: startTime,
+        endTime: endTime,
+        trainerId: trainerId,
+        seriesId: seriesId,
+        trainerName: trainerName,
+        childId: cid,
+        childFirstName: childBlock?['first_name'] as String?,
+        childLastName: childBlock?['last_name'] as String?,
+        attendanceStatus: att?['status'] as String?,
+        attendanceObservation: att?['observation'] as String?,
+        creditedSeriesId: att?['credited_series_id'] as String?,
+        visitorRegularDayOfWeek: seriesBlock?['day_of_week'] as String?,
+        visitorRegularStartTime: seriesBlock?['start_time'] as String?,
+        visitorRegularSeriesTitle: seriesBlock?['title'] as String?,
+      ));
+    }
+
+    return rows;
+  }
+
+  /// Returns children eligible to be added as visitors to the physical
+  /// session of [seriesId]: same workshop_type, enrolled on a DIFFERENT
+  /// series, not already present in the physical roster of
+  /// [scheduledWorkshopId]. One roundtrip.
+  Future<List<VisitorCandidate>> fetchVisitorCandidates({
+    required String seriesId,
+    required String scheduledWorkshopId,
+  }) async {
+    final seriesRow = await _client
+        .from('workshop_series')
+        .select('workshop_type')
+        .eq('id', seriesId)
+        .maybeSingle();
+    final workshopType = seriesRow?['workshop_type'] as String?;
+    if (workshopType == null) return const [];
+
+    final enrollmentData = await _client
+        .from('workshop_enrollments')
+        .select(
+          'child_id, series_id, '
+          'children!child_id(id, first_name, last_name), '
+          'workshop_series!series_id'
+          '(id, title, day_of_week, start_time, workshop_type)',
+        )
+        .eq('is_active', true)
+        .neq('series_id', seriesId);
+
+    final existingData = await _client
+        .from('attendance')
+        .select('child_id')
+        .eq('scheduled_workshop_id', scheduledWorkshopId);
+    final existingIds = <String>{
+      for (final r in (existingData as List)) r['child_id'] as String,
+    };
+
+    final enrolledData = await _client
+        .from('workshop_enrollments')
+        .select('child_id')
+        .eq('series_id', seriesId)
+        .eq('is_active', true);
+    final enrolledIds = <String>{
+      for (final r in (enrolledData as List)) r['child_id'] as String,
+    };
+
+    final grouped = <String, List<VisitorCandidateEnrollment>>{};
+    final meta = <String, Map<String, dynamic>>{};
+    for (final row in (enrollmentData as List)) {
+      final map = row as Map<String, dynamic>;
+      final childBlock = map['children'] as Map<String, dynamic>?;
+      final seriesBlock = map['workshop_series'] as Map<String, dynamic>?;
+      if (childBlock == null || seriesBlock == null) continue;
+      if ((seriesBlock['workshop_type'] as String?) != workshopType) continue;
+      final childId = map['child_id'] as String?;
+      final enrSeriesId = map['series_id'] as String?;
+      if (childId == null || enrSeriesId == null) continue;
+      if (existingIds.contains(childId)) continue;
+      if (enrolledIds.contains(childId)) continue;
+      meta.putIfAbsent(childId, () => childBlock);
+      grouped.putIfAbsent(childId, () => []).add(
+            VisitorCandidateEnrollment(
+              seriesId: enrSeriesId,
+              seriesTitle: seriesBlock['title'] as String? ?? '',
+              dayOfWeek: seriesBlock['day_of_week'] as String? ?? '',
+              startTime: seriesBlock['start_time'] as String? ?? '',
+            ),
+          );
+    }
+    return [
+      for (final entry in grouped.entries)
+        VisitorCandidate(
+          childId: entry.key,
+          firstName: meta[entry.key]?['first_name'] as String?,
+          lastName: meta[entry.key]?['last_name'] as String?,
+          enrollments: entry.value,
+        ),
+    ];
+  }
+
+  /// Adds a visitor to [scheduledWorkshopId] with the given attendance
+  /// [status] (default `'present'`) and links the credit via
+  /// [creditedSeriesId] to the child's regular enrollment.
+  ///
+  /// The DB stores `attendance.status` as NOT NULL, so adding a visitor
+  /// and recording their physical presence is a SINGLE atomic action —
+  /// the AddVisitorDialog captures the enrollment choice and marks
+  /// present in one confirm. Server validator (I1..I5) enforces the
+  /// same-workshop + active-enrollment + no-makeup-collision contract.
+  Future<void> addVisitor({
+    required bool isStaff,
+    required String scheduledWorkshopId,
+    required String childId,
+    required String creditedSeriesId,
+    required String markedBy,
+    String status = 'present',
+  }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
+    await _client.from('attendance').upsert({
+      'scheduled_workshop_id': scheduledWorkshopId,
+      'child_id': childId,
+      'status': status,
+      'is_archived': false,
+      'marked_by': markedBy,
+      'marked_at': DateTime.now().toUtc().toIso8601String(),
+      'credited_series_id': creditedSeriesId,
+    }, onConflict: 'scheduled_workshop_id,child_id');
+  }
+
+  /// Removes a visitor from the physical session. Only safe for rows
+  /// where credited_series_id is set (= true visitor); regular enrolled
+  /// children keep their attendance history via DELETE RLS, so callers
+  /// should branch on [WorkshopDetailRow.isVisitor] before invoking.
+  Future<void> removeVisitor({
+    required bool isStaff,
+    required String scheduledWorkshopId,
+    required String childId,
+  }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
+    await _client
+        .from('attendance')
+        .delete()
+        .eq('scheduled_workshop_id', scheduledWorkshopId)
+        .eq('child_id', childId)
+        .not('credited_series_id', 'is', null);
   }
 
   Future<ScheduledWorkshop?> getById(String id) async {

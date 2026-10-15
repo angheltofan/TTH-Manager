@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/feature_flags.dart';
+
 import '../domain/child_current_status_row.dart';
 import '../domain/child_model.dart';
 import '../domain/child_payment_cycle.dart';
@@ -57,23 +59,66 @@ class ChildDetailsRepository {
       String childId, {
     bool isFreeParticipant = false,
   }) async {
-    final data = await _client
-        .from('attendance')
-        .select(
-            'id, child_id, status, observation, payment_cycle_id, '
+    // SELECT shape depends on whether the credit-override column has
+    // been added by migration 20261014. The flag is compile-time so
+    // schemas without the column never see it in the request.
+    final attendanceCols = kFlexibleAttendanceCreditEnabled
+        ? ('id, child_id, status, observation, payment_cycle_id, '
+            'credited_series_id, '
             'scheduled_workshops!scheduled_workshop_id('
             'title, workshop_date, day_of_week, start_time, end_time, '
             'series_id, recurring_series_id, '
             'workshop_series!series_id(title))')
+        : ('id, child_id, status, observation, payment_cycle_id, '
+            'scheduled_workshops!scheduled_workshop_id('
+            'title, workshop_date, day_of_week, start_time, end_time, '
+            'series_id, recurring_series_id, '
+            'workshop_series!series_id(title))');
+    final data = await _client
+        .from('attendance')
+        .select(attendanceCols)
         .eq('child_id', childId)
         .eq('is_archived', false);
+
+    // Resolve credited_series_id → (title) for the override case.
+    final creditedIds = <String>{
+      if (kFlexibleAttendanceCreditEnabled)
+        for (final e in (data as List))
+          if ((e as Map<String, dynamic>)['credited_series_id'] != null)
+            e['credited_series_id'] as String,
+    };
+    final Map<String, Map<String, dynamic>> creditedMeta = {};
+    if (creditedIds.isNotEmpty) {
+      final cs = await _client
+          .from('workshop_series')
+          .select('id, title')
+          .inFilter('id', creditedIds.toList());
+      for (final row in (cs as List)) {
+        final m = row as Map<String, dynamic>;
+        creditedMeta[m['id'] as String] = m;
+      }
+    }
 
     final rows = (data as List).map((e) {
       final map = e as Map<String, dynamic>;
       final sw = map['scheduled_workshops'] as Map<String, dynamic>?;
       final wsEmbed = sw?['workshop_series'] as Map<String, dynamic>?;
-      final resolvedSeriesId = (sw?['series_id'] as String?) ??
+      final physicalSeriesId = (sw?['series_id'] as String?) ??
           (sw?['recurring_series_id'] as String?);
+      // Null unless migration 20261014 is applied — safe either way.
+      final creditedSeriesId = kFlexibleAttendanceCreditEnabled
+          ? map['credited_series_id'] as String?
+          : null;
+      // Visitor rows: billing-series owns the row in the financial
+      // timeline. Report seriesId as the EFFECTIVE one so the snapshot
+      // groups the row into the enrollment, not the physical series.
+      final effectiveSeriesId = creditedSeriesId ?? physicalSeriesId;
+      final creditedMetaBlock = creditedSeriesId != null
+          ? creditedMeta[creditedSeriesId]
+          : null;
+      final seriesTitle = creditedMetaBlock != null
+          ? (creditedMetaBlock['title'] as String?)
+          : (wsEmbed?['title'] as String?);
       return ChildCurrentStatusRow(
         childId: (map['child_id'] as String?) ?? '',
         attendanceId: map['id'] as String?,
@@ -86,9 +131,10 @@ class ChildDetailsRepository {
         endTime: sw?['end_time'] as String?,
         attendanceStatus: map['status'] as String?,
         observation: map['observation'] as String?,
-        seriesId: resolvedSeriesId,
-        seriesTitle: wsEmbed?['title'] as String?,
+        seriesId: effectiveSeriesId,
+        seriesTitle: seriesTitle,
         paymentCycleId: map['payment_cycle_id'] as String?,
+        creditedSeriesId: creditedSeriesId,
       );
     }).toList();
 

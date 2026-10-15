@@ -3,6 +3,7 @@
 import '../../../core/supabase/supabase_client_provider.dart';
 import '../data/workshops_repository.dart';
 import '../domain/scheduled_workshop.dart';
+import '../domain/visitor_candidate.dart';
 import '../domain/workshop_detail_row.dart';
 
 // ── Repository ────────────────────────────────────────────────────────────────
@@ -19,6 +20,36 @@ final workshopDetailsProvider =
     return ref.watch(workshopsRepositoryProvider).getDetails(workshopId);
   },
 );
+
+/// Candidates for "+ Adaugă participant din altă grupă". Keyed by the
+/// composite (seriesId, scheduledWorkshopId) so the same (series) at
+/// different physical dates filters independently on the "already in
+/// roster" guard.
+class VisitorCandidatesKey {
+  const VisitorCandidatesKey({
+    required this.seriesId,
+    required this.scheduledWorkshopId,
+  });
+  final String seriesId;
+  final String scheduledWorkshopId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is VisitorCandidatesKey &&
+      other.seriesId == seriesId &&
+      other.scheduledWorkshopId == scheduledWorkshopId;
+
+  @override
+  int get hashCode => Object.hash(seriesId, scheduledWorkshopId);
+}
+
+final visitorCandidatesProvider = FutureProvider.autoDispose
+    .family<List<VisitorCandidate>, VisitorCandidatesKey>((ref, key) {
+  return ref.watch(workshopsRepositoryProvider).fetchVisitorCandidates(
+        seriesId: key.seriesId,
+        scheduledWorkshopId: key.scheduledWorkshopId,
+      );
+});
 
 // ── Provider used by ChildEnrollmentSection ───────────────────────────────────
 

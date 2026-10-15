@@ -14,6 +14,7 @@ class ChildCurrentStatusRow {
     this.seriesId,
     this.seriesTitle,
     this.paymentCycleId,
+    this.creditedSeriesId,
   });
 
   final String childId;
@@ -40,6 +41,16 @@ class ChildCurrentStatusRow {
   /// this field.
   final String? paymentCycleId;
 
+  /// Visitor override — when non-null, the attendance credits this
+  /// series' cycle instead of the physical [seriesId]. Snapshot grouping
+  /// must prefer this over [seriesId] (see `series_snapshot.dart`).
+  final String? creditedSeriesId;
+
+  /// Returns the series that should OWN this row in the Child Details
+  /// financial timeline: the credit override if set, otherwise the
+  /// physical series.
+  String? get billingSeriesId => creditedSeriesId ?? seriesId;
+
   factory ChildCurrentStatusRow.fromMap(Map<String, dynamic> map) =>
       ChildCurrentStatusRow(
         childId: (map['child_id'] as String?) ?? '',
@@ -53,5 +64,6 @@ class ChildCurrentStatusRow {
         endTime: map['end_time'] as String?,
         attendanceStatus: map['attendance_status'] as String?,
         observation: map['observation'] as String?,
+        creditedSeriesId: map['credited_series_id'] as String?,
       );
 }

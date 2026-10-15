@@ -64,14 +64,34 @@ class _MobileRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        fullName,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              fullName,
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (r.isVisitor) ...[
+                            const SizedBox(width: 6),
+                            const _VisitorBadge(),
+                          ],
+                        ],
                       ),
-                      if (r.parentName != null)
+                      if (_visitorSubtitle(r) != null)
+                        Text(
+                          _visitorSubtitle(r)!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.info,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else if (r.parentName != null)
                         Text(
                           r.parentName!,
                           style: theme.textTheme.bodySmall
@@ -187,14 +207,34 @@ class _DesktopRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    fullName,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          fullName,
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (r.isVisitor) ...[
+                        const SizedBox(width: 6),
+                        const _VisitorBadge(),
+                      ],
+                    ],
                   ),
-                  if (r.parentName != null)
+                  if (_visitorSubtitle(r) != null)
+                    Text(
+                      _visitorSubtitle(r)!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.info,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  else if (r.parentName != null)
                     Text(
                       r.parentName!,
                       style: theme.textTheme.bodySmall
@@ -349,5 +389,63 @@ class AttendanceStatusChip extends StatelessWidget {
             color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
+  }
+}
+
+/// Compact badge for a visitor attendance ("Prezență în altă grupă").
+/// Rendered inline on the child name line. Keeps the row visually
+/// lightweight — no extra line pair beyond the regular-group subtitle.
+class _VisitorBadge extends StatelessWidget {
+  const _VisitorBadge();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.info.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
+      ),
+      child: const Text(
+        'Altă grupă',
+        style: TextStyle(
+          color: AppColors.info,
+          fontWeight: FontWeight.w800,
+          fontSize: 9,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+/// Builds the "Altă grupă · Marți 16:00" subtitle text for a visitor
+/// row. Returns null if the row carries no visitor metadata.
+String? _visitorSubtitle(WorkshopDetailRow r) {
+  if (!r.isVisitor) return null;
+  final day = r.visitorRegularDayOfWeek;
+  final start = r.visitorRegularStartTime;
+  if (day == null || start == null) return null;
+  return 'Altă grupă · ${_dayLabel(day)} $start';
+}
+
+String _dayLabel(String code) {
+  switch (code) {
+    case 'LUNI':
+      return 'Luni';
+    case 'MARTI':
+      return 'Marți';
+    case 'MIERCURI':
+      return 'Miercuri';
+    case 'JOI':
+      return 'Joi';
+    case 'VINERI':
+      return 'Vineri';
+    case 'SAMBATA':
+      return 'Sâmbătă';
+    case 'DUMINICA':
+      return 'Duminică';
+    default:
+      return code;
   }
 }

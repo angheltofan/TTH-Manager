@@ -70,10 +70,12 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
           final rec = _primaryRecord(payload);
           final wsId = _str(rec, 'scheduled_workshop_id');
           final childId = _str(rec, 'child_id');
+          final creditedSeriesId = _str(rec, 'credited_series_id');
           if (kDebugMode) {
             debugPrint(
               '[RT] attendance → ${payload.eventType} '
-              'wsId=$wsId childId=$childId',
+              'wsId=$wsId childId=$childId '
+              'creditedSeriesId=$creditedSeriesId',
             );
           }
           // Aggregate / dashboard-facing providers (always).
@@ -91,6 +93,19 @@ final appRealtimeProvider = Provider.autoDispose<void>((ref) {
             ref.invalidate(workshopDetailsProvider(wsId));
             if (kDebugMode) {
               debugPrint('[RT] attendance: workshopDetailsProvider($wsId) invalidated');
+            }
+          }
+          // Visitor attendance: the credited series is DIFFERENT than
+          // the physical one. Invalidate anything keyed off that series
+          // so the enrolled roster / schedule card picks up the one-shot
+          // visitor row immediately.
+          if (creditedSeriesId != null) {
+            ref.invalidate(workshopSeriesByIdProvider(creditedSeriesId));
+            if (kDebugMode) {
+              debugPrint(
+                '[RT] attendance: credited series '
+                '($creditedSeriesId) providers invalidated',
+              );
             }
           }
           if (childId != null) {

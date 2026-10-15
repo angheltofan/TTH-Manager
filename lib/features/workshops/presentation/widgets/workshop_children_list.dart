@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/feature_flags.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../domain/workshop_detail_row.dart';
 import '../../providers/enrollment_providers.dart';
+import '../../providers/workshops_providers.dart';
+import 'add_visitor_dialog.dart';
 import 'attendance_mark_row.dart';
 import 'enroll_children_dialog.dart';
 
@@ -62,6 +65,8 @@ class WorkshopChildrenList extends StatelessWidget {
                     count: enrolled.length,
                     theme: theme,
                     isAdmin: isAdmin,
+                    canMark: canMark,
+                    workshopId: workshopId,
                     seriesId: seriesId,
                     onEnrolled: onEnrolled,
                     onMarkAll: onMarkAll,
@@ -71,6 +76,8 @@ class WorkshopChildrenList extends StatelessWidget {
                     count: enrolled.length,
                     theme: theme,
                     isAdmin: isAdmin,
+                    canMark: canMark,
+                    workshopId: workshopId,
                     seriesId: seriesId,
                     onEnrolled: onEnrolled,
                     onMarkAll: onMarkAll,
@@ -196,6 +203,8 @@ class _DesktopHeader extends StatelessWidget {
     required this.count,
     required this.theme,
     required this.isAdmin,
+    required this.canMark,
+    required this.workshopId,
     this.seriesId,
     this.onEnrolled,
     this.onMarkAll,
@@ -204,6 +213,8 @@ class _DesktopHeader extends StatelessWidget {
   final int count;
   final ThemeData theme;
   final bool isAdmin;
+  final bool canMark;
+  final String workshopId;
   final String? seriesId;
   final VoidCallback? onEnrolled;
   final VoidCallback? onMarkAll;
@@ -247,6 +258,14 @@ class _DesktopHeader extends StatelessWidget {
         ),
         if (isAdmin && seriesId != null)
           _AddChildrenButton(seriesId: seriesId!, onEnrolled: onEnrolled),
+        if (kFlexibleAttendanceCreditEnabled &&
+            canMark &&
+            seriesId != null)
+          _AddVisitorButton(
+            seriesId: seriesId!,
+            scheduledWorkshopId: workshopId,
+            onAdded: onEnrolled,
+          ),
         if (onMarkAll != null)
           _MarkAllPresentButton(onMarkAll: onMarkAll!, loading: markingAll),
       ],
@@ -259,6 +278,8 @@ class _MobileHeader extends StatelessWidget {
     required this.count,
     required this.theme,
     required this.isAdmin,
+    required this.canMark,
+    required this.workshopId,
     this.seriesId,
     this.onEnrolled,
     this.onMarkAll,
@@ -267,6 +288,8 @@ class _MobileHeader extends StatelessWidget {
   final int count;
   final ThemeData theme;
   final bool isAdmin;
+  final bool canMark;
+  final String workshopId;
   final String? seriesId;
   final VoidCallback? onEnrolled;
   final VoidCallback? onMarkAll;
@@ -274,7 +297,9 @@ class _MobileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasActions = (isAdmin && seriesId != null) || onMarkAll != null;
+    final hasActions = (isAdmin && seriesId != null) ||
+        (kFlexibleAttendanceCreditEnabled && canMark && seriesId != null) ||
+        onMarkAll != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -325,6 +350,15 @@ class _MobileHeader extends StatelessWidget {
               if (isAdmin && seriesId != null)
                 _AddChildrenButton(
                     seriesId: seriesId!, onEnrolled: onEnrolled),
+              if (kFlexibleAttendanceCreditEnabled &&
+                  canMark &&
+                  seriesId != null)
+                _AddVisitorButton(
+                  seriesId: seriesId!,
+                  scheduledWorkshopId: workshopId,
+                  onAdded: onEnrolled,
+                  shortLabel: true,
+                ),
               if (onMarkAll != null)
                 _MarkAllPresentButton(
                   onMarkAll: onMarkAll!,
@@ -418,6 +452,60 @@ class _AddChildrenButton extends ConsumerWidget {
       ref.invalidate(availableChildrenForSeriesProvider(seriesId));
       ref.invalidate(seriesEnrolledChildrenProvider(seriesId));
       onEnrolled?.call();
+    }
+  }
+}
+
+// ── Add visitor from another group button ───────────────────────────────────
+
+class _AddVisitorButton extends ConsumerWidget {
+  const _AddVisitorButton({
+    required this.seriesId,
+    required this.scheduledWorkshopId,
+    this.onAdded,
+    this.shortLabel = false,
+  });
+
+  final String seriesId;
+  final String scheduledWorkshopId;
+  final VoidCallback? onAdded;
+  final bool shortLabel;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: TextButton.icon(
+        onPressed: () => _open(context, ref),
+        icon: const Icon(Icons.group_add_outlined, size: 15),
+        label: Text(
+          shortLabel ? 'Altă grupă' : '+ Adaugă participant din altă grupă',
+        ),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.info,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final added = await showDialog<bool>(
+      context: context,
+      builder: (_) => AddVisitorDialog(
+        seriesId: seriesId,
+        scheduledWorkshopId: scheduledWorkshopId,
+      ),
+    );
+    if (added == true) {
+      final key = VisitorCandidatesKey(
+        seriesId: seriesId,
+        scheduledWorkshopId: scheduledWorkshopId,
+      );
+      ref.invalidate(visitorCandidatesProvider(key));
+      ref.invalidate(workshopDetailsProvider(scheduledWorkshopId));
+      onAdded?.call();
     }
   }
 }

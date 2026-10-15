@@ -215,6 +215,7 @@ class ParentRecentActivityItem {
     this.endTime,
     this.markedAt,
     this.observation,
+    this.isVisitor = false,
   });
 
   final String id;
@@ -231,6 +232,11 @@ class ParentRecentActivityItem {
   final DateTime? markedAt;
   final String? observation;
 
+  /// True when the attendance was credited to a different workshop series
+  /// than the one of the physical session attended (the "Prezență în
+  /// altă grupă" flow). UI appends "(altă grupă)" to the workshop label.
+  final bool isVisitor;
+
   String get childFullName {
     final f = childFirstName.trim();
     final l = childLastName.trim();
@@ -240,8 +246,12 @@ class ParentRecentActivityItem {
     return '$f $l';
   }
 
-  String get workshopLabel =>
-      (workshopTitle?.isNotEmpty == true) ? workshopTitle! : (workshopType ?? 'atelier');
+  String get workshopLabel {
+    final base = (workshopTitle?.isNotEmpty == true)
+        ? workshopTitle!
+        : (workshopType ?? 'atelier');
+    return isVisitor ? '$base (altă grupă)' : base;
+  }
 }
 
 // ── KPI: nearest upcoming workshop across ALL of the parent's children ─────

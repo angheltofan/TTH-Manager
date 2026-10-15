@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/feature_flags.dart';
 import '../domain/parent_base.dart';
 import '../domain/parent_dashboard.dart';
 
@@ -437,15 +438,23 @@ class ParentDashboardRepository {
   }) async {
     if (childIds.isEmpty) return const [];
 
+    // SELECT shape depends on migration 20261014. Legacy schemas
+    // (column absent) must not see `credited_series_id` on the wire.
+    final cols = kFlexibleAttendanceCreditEnabled
+        ? ('id, status, marked_at, child_id, observation, '
+            'credited_series_id, '
+            'children!child_id(first_name, last_name), '
+            'scheduled_workshops!scheduled_workshop_id('
+            'title, workshop_type, workshop_date, day_of_week, '
+            'start_time, end_time)')
+        : ('id, status, marked_at, child_id, observation, '
+            'children!child_id(first_name, last_name), '
+            'scheduled_workshops!scheduled_workshop_id('
+            'title, workshop_type, workshop_date, day_of_week, '
+            'start_time, end_time)');
     final data = await _client
         .from('attendance')
-        .select(
-          'id, status, marked_at, child_id, observation, '
-          'children!child_id(first_name, last_name), '
-          'scheduled_workshops!scheduled_workshop_id('
-          'title, workshop_type, workshop_date, day_of_week, '
-          'start_time, end_time)',
-        )
+        .select(cols)
         .inFilter('child_id', childIds)
         .eq('is_archived', false)
         .order('marked_at', ascending: false)
@@ -473,6 +482,8 @@ class ParentDashboardRepository {
             ? DateTime.tryParse(row['marked_at'] as String)
             : null,
         observation: row['observation'] as String?,
+        isVisitor: kFlexibleAttendanceCreditEnabled &&
+            row['credited_series_id'] != null,
       ));
     }
     return out;
