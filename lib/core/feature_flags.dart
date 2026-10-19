@@ -18,4 +18,4 @@ library;
 ///   • parent portal recent activity never flags a row as a visitor.
 /// The Flutter Phase B implementation stays in-tree, ready to activate
 /// in one place.
-const bool kFlexibleAttendanceCreditEnabled = false;
+const bool kFlexibleAttendanceCreditEnabled = true;
