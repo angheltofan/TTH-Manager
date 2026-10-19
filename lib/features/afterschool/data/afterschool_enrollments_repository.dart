@@ -60,8 +60,20 @@ is_active, notes, enrolled_by, created_at, updated_at
   }
 
   /// Fetches all enrollments (any child) that cover `date` in the
-  /// given program. Used by the "Today" tab to determine which
-  /// children are expected to attend a session on that date.
+  /// given program. Historical reporting path — must return every
+  /// enrollment whose `[enrolled_from, enrolled_until]` interval
+  /// contained `date`, regardless of the current `is_active` flag.
+  ///
+  /// Why NOT filter on `is_active = true`: when an admin ends an
+  /// enrollment via [endEnrollment], the row is left in place with
+  /// `enrolled_until = <end_date>` AND `is_active = false`. Filtering
+  /// on `is_active = true` therefore hides every historical cohort
+  /// that has since been un-enrolled, breaking "add attendance for a
+  /// past date" on the operational page (the roster becomes empty or
+  /// incomplete, so the marker UI gates out). The date interval is
+  /// authoritative for coverage; `is_active` only reflects the row's
+  /// CURRENT state and is already redundant with `enrolled_until`
+  /// (closing sets both atomically).
   Future<List<AfterschoolEnrollment>> fetchCoveringDate({
     required String programId,
     required DateTime date,
@@ -71,7 +83,6 @@ is_active, notes, enrolled_by, created_at, updated_at
         .from('afterschool_enrollments')
         .select(_selectCols)
         .eq('program_id', programId)
-        .eq('is_active', true)
         .lte('enrolled_from', iso)
         .or('enrolled_until.is.null,enrolled_until.gte.$iso');
     return (data as List)
