@@ -322,12 +322,18 @@ class _ChildAttendanceCalendarModalState
     final attendanceId = s.attendanceId;
     if (attendanceId == null) return;
     try {
-      await ref
-          .read(attendanceCalendarRepositoryProvider)
-          .deleteAttendance(
-            attendanceId: attendanceId,
-            isStaff: profile.isStaff,
-          );
+      final repo = ref.read(attendanceCalendarRepositoryProvider);
+      if (s.isAfterschool) {
+        await repo.deleteAfterschoolAttendance(
+          attendanceId: attendanceId,
+          isStaff: profile.isStaff,
+        );
+      } else {
+        await repo.deleteAttendance(
+          attendanceId: attendanceId,
+          isStaff: profile.isStaff,
+        );
+      }
       _invalidateAllProvidersForThisChild();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -355,16 +361,35 @@ class _ChildAttendanceCalendarModalState
     final profile = ref.read(currentProfileProvider).valueOrNull;
     if (profile == null) return;
     try {
-      await ref
-          .read(attendanceCalendarRepositoryProvider)
-          .upsertAttendance(
-            childId: widget.childId,
-            scheduledWorkshopId: s.scheduledWorkshopId,
-            status: status,
-            observation: observation,
-            markedBy: profile.id,
-            isStaff: profile.isStaff,
-          );
+      final repo = ref.read(attendanceCalendarRepositoryProvider);
+      if (s.isAfterschool) {
+        final afsSessionId = s.afterschoolSessionId;
+        if (afsSessionId == null) {
+          throw StateError('Afterschool session id missing');
+        }
+        // afterschool_attendance CHECK: status in ('present','absent').
+        // Fold legacy workshop values the editor might surface:
+        //  - 'motivated' is workshop-only; afterschool treats it as absent
+        //    (the status is not representable in that schema).
+        final normalised = status == 'present' ? 'present' : 'absent';
+        await repo.upsertAfterschoolAttendance(
+          childId: widget.childId,
+          afterschoolSessionId: afsSessionId,
+          status: normalised,
+          observation: observation,
+          markedBy: profile.id,
+          isStaff: profile.isStaff,
+        );
+      } else {
+        await repo.upsertAttendance(
+          childId: widget.childId,
+          scheduledWorkshopId: s.scheduledWorkshopId,
+          status: status,
+          observation: observation,
+          markedBy: profile.id,
+          isStaff: profile.isStaff,
+        );
+      }
       _invalidateAllProvidersForThisChild();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -399,16 +424,30 @@ class _ChildAttendanceCalendarModalState
     }
     setState(() => _busyWorkshopIds.add(s.scheduledWorkshopId));
     try {
-      await ref
-          .read(attendanceCalendarRepositoryProvider)
-          .upsertAttendance(
-            childId: widget.childId,
-            scheduledWorkshopId: s.scheduledWorkshopId,
-            status: status,
-            observation: null,
-            markedBy: profile.id,
-            isStaff: profile.isStaff,
-          );
+      final repo = ref.read(attendanceCalendarRepositoryProvider);
+      if (s.isAfterschool) {
+        final afsSessionId = s.afterschoolSessionId;
+        if (afsSessionId == null) {
+          throw StateError('Afterschool session id missing');
+        }
+        final normalised = status == 'present' ? 'present' : 'absent';
+        await repo.upsertAfterschoolAttendance(
+          childId: widget.childId,
+          afterschoolSessionId: afsSessionId,
+          status: normalised,
+          markedBy: profile.id,
+          isStaff: profile.isStaff,
+        );
+      } else {
+        await repo.upsertAttendance(
+          childId: widget.childId,
+          scheduledWorkshopId: s.scheduledWorkshopId,
+          status: status,
+          observation: null,
+          markedBy: profile.id,
+          isStaff: profile.isStaff,
+        );
+      }
       _invalidateAllProvidersForThisChild();
     } catch (e) {
       if (!mounted) return;
@@ -466,6 +505,12 @@ class _ChildAttendanceCalendarModalState
 
   bool _canEditWorkshop(ChildCalendarSession s, AppProfile profile) {
     if (profile.isAdmin) return true;
+    if (s.isAfterschool) {
+      // Afterschool RLS allows any `is_staff()` write; the operational
+      // page uses the same semantics. Trainers may mark any program's
+      // afterschool attendance.
+      return profile.isTrainer;
+    }
     if (profile.isTrainer &&
         s.trainerId != null &&
         s.trainerId == profile.id) {

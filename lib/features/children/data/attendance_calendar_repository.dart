@@ -88,9 +88,201 @@ class AttendanceCalendarRepository {
       merged[wsId] = _sessionFromWorkshopRow(ws, enrolmentActive: true);
     }
 
+    // Step 3: afterschool. A child who only attends afterschool had an
+    // empty workshop-only calendar before — every day cell rendered as
+    // `onTap: null` → "all greyed out" bug. Historical correctness
+    // mirrors the fix in `AfterschoolEnrollmentsRepository.fetchCoveringDate`:
+    // use the enrollment date interval, NOT `is_active`.
+    final afsEnrolments = await _client
+        .from('afterschool_enrollments')
+        .select('program_id, enrolled_from, enrolled_until, '
+            'afterschool_programs!program_id(id, name)')
+        .eq('child_id', childId)
+        .lte('enrolled_from', endStr)
+        .or('enrolled_until.is.null,enrolled_until.gte.$startStr');
+
+    final afsProgramNames = <String, String>{};
+    final afsProgramIdsInWindow = <String>{};
+    for (final row in (afsEnrolments as List)) {
+      final map = row as Map<String, dynamic>;
+      final programId = map['program_id'] as String?;
+      if (programId == null) continue;
+      afsProgramIdsInWindow.add(programId);
+      final prog = map['afterschool_programs'] as Map<String, dynamic>?;
+      final name = prog?['name'] as String?;
+      if (name != null && name.isNotEmpty) {
+        afsProgramNames[programId] = name;
+      }
+    }
+
+    if (afsProgramIdsInWindow.isNotEmpty) {
+      // Materialise any missing afterschool_sessions rows in
+      // [startStr, endStr) for each program the child was enrolled in
+      // during the window. Idempotent server-side.
+      for (final programId in afsProgramIdsInWindow) {
+        try {
+          await _client.rpc(
+            'generate_afterschool_sessions_window',
+            params: {
+              'p_program_id': programId,
+              'p_from': startStr,
+              'p_to': endStr,
+            },
+          );
+        } catch (_) {
+          // Non-fatal: parent tokens lack execute grant; or the program's
+          // active window doesn't cover the month. The SELECT below
+          // still returns whatever is already materialised.
+        }
+      }
+
+      final afsSessionsRaw = await _client
+          .from('afterschool_sessions')
+          .select('id, program_id, session_date, status, '
+              'afterschool_programs!program_id(name, start_time, end_time)')
+          .inFilter('program_id', afsProgramIdsInWindow.toList())
+          .gte('session_date', startStr)
+          .lt('session_date', endStr);
+      final afsSessions =
+          (afsSessionsRaw as List).cast<Map<String, dynamic>>();
+
+      Map<String, Map<String, dynamic>> afsAttByCompositeKey = const {};
+      if (afsSessions.isNotEmpty) {
+        final sessionIds =
+            afsSessions.map((s) => s['id'] as String).toList();
+        final afsAttRows = await _client
+            .from('afterschool_attendance')
+            .select('id, session_id, child_id, status, observation, '
+                'marked_at, marked_by, '
+                'profiles!marked_by(first_name, last_name)')
+            .eq('child_id', childId)
+            .inFilter('session_id', sessionIds);
+        afsAttByCompositeKey = {
+          for (final r in (afsAttRows as List))
+            (r as Map<String, dynamic>)['session_id'] as String: r,
+        };
+      }
+
+      for (final sess in afsSessions) {
+        final sessionId = sess['id'] as String;
+        final programId = sess['program_id'] as String;
+        final programBlock =
+            sess['afterschool_programs'] as Map<String, dynamic>?;
+        final att = afsAttByCompositeKey[sessionId];
+        final dedupKey = 'afs:$sessionId';
+        if (merged.containsKey(dedupKey)) continue;
+        merged[dedupKey] = _sessionFromAfterschool(
+          sessionRow: sess,
+          programBlock: programBlock,
+          programName: afsProgramNames[programId],
+          attendanceRow: att,
+        );
+      }
+    }
+
     final list = merged.values.toList();
     list.sort(_compareByDateAndTime);
     return list;
+  }
+
+  /// Builds a [ChildCalendarSession] from an afterschool session row
+  /// (optional attendance row). The dedup key for the surrounding map
+  /// is `'afs:<sessionId>'` so afterschool entries never collide with
+  /// workshop ones.
+  ChildCalendarSession _sessionFromAfterschool({
+    required Map<String, dynamic> sessionRow,
+    required Map<String, dynamic>? programBlock,
+    required String? programName,
+    required Map<String, dynamic>? attendanceRow,
+  }) {
+    final sessionId = sessionRow['id'] as String;
+    final programId = sessionRow['program_id'] as String;
+    final dateStr = sessionRow['session_date'] as String;
+    final date = DateTime.parse(dateStr);
+    final title = programName ??
+        (programBlock?['name'] as String?) ??
+        'Afterschool';
+    final startTime = (programBlock?['start_time'] as String?) ?? '';
+    final endTime = (programBlock?['end_time'] as String?) ?? '';
+
+    String? markedByName;
+    DateTime? markedAt;
+    String? status;
+    String? observation;
+    String? attendanceId;
+    if (attendanceRow != null) {
+      attendanceId = attendanceRow['id'] as String?;
+      status = attendanceRow['status'] as String?;
+      observation = attendanceRow['observation'] as String?;
+      final markedAtRaw = attendanceRow['marked_at'] as String?;
+      if (markedAtRaw != null) markedAt = DateTime.parse(markedAtRaw);
+      final profile =
+          attendanceRow['profiles'] as Map<String, dynamic>?;
+      if (profile != null) {
+        final combined =
+            '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'
+                .trim();
+        if (combined.isNotEmpty) markedByName = combined;
+      }
+    }
+
+    return ChildCalendarSession(
+      // Synthetic composite id — the UI uses it only as a map key; the
+      // real write target is [afterschoolSessionId].
+      scheduledWorkshopId: 'afs:$sessionId',
+      workshopDate: DateTime(date.year, date.month, date.day),
+      startTime: startTime,
+      endTime: endTime,
+      workshopTitle: title,
+      workshopType: 'Afterschool',
+      dayOfWeek: null,
+      trainerId: null,
+      attendanceId: attendanceId,
+      status: status,
+      observation: observation,
+      markedAt: markedAt,
+      markedByName: markedByName,
+      isEnrolmentActive: true,
+      kind: ChildCalendarSessionKind.afterschool,
+      afterschoolSessionId: sessionId,
+      afterschoolProgramId: programId,
+    );
+  }
+
+  /// UPSERTs an afterschool attendance row for `(childId, sessionId)`.
+  /// Server-side check constraint only allows `'present'` / `'absent'`.
+  Future<void> upsertAfterschoolAttendance({
+    required String childId,
+    required String afterschoolSessionId,
+    required String status,
+    String? observation,
+    required String markedBy,
+    required bool isStaff,
+  }) async {
+    if (!isStaff) throw StateError('Unauthorized role');
+    if (status != 'present' && status != 'absent') {
+      throw ArgumentError.value(status, 'status');
+    }
+    await _client.from('afterschool_attendance').upsert({
+      'session_id': afterschoolSessionId,
+      'child_id': childId,
+      'status': status,
+      'observation': observation,
+      'marked_by': markedBy,
+      'marked_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'session_id,child_id');
+  }
+
+  /// Removes an afterschool attendance row entirely. Admin-only (RLS
+  /// also enforces this per `20261001_afterschool_attendance_delete_staff.sql`).
+  Future<void> deleteAfterschoolAttendance({
+    required String attendanceId,
+    required bool isStaff,
+  }) async {
+    if (!isStaff) {
+      throw StateError('Only staff may delete attendance rows');
+    }
+    await _client.from('afterschool_attendance').delete().eq('id', attendanceId);
   }
 
   /// Past sessions in the last [monthsBack] months for [childId] that have
