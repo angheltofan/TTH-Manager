@@ -136,10 +136,16 @@ class AttendanceCalendarRepository {
         }
       }
 
+      // `afterschool_sessions` has NO `status` column — the day-level
+      // state is `is_closed` + `closed_reason`. Per-child attendance
+      // status lives on `afterschool_attendance.status`. `start_time`
+      // / `end_time` are session-level (not program-level) per the
+      // 20260928_afterschool_schema migration.
       final afsSessionsRaw = await _client
           .from('afterschool_sessions')
-          .select('id, program_id, session_date, status, '
-              'afterschool_programs!program_id(name, start_time, end_time)')
+          .select('id, program_id, session_date, start_time, end_time, '
+              'is_closed, closed_reason, '
+              'afterschool_programs!program_id(name)')
           .inFilter('program_id', afsProgramIdsInWindow.toList())
           .gte('session_date', startStr)
           .lt('session_date', endStr);
@@ -188,7 +194,8 @@ class AttendanceCalendarRepository {
   /// Builds a [ChildCalendarSession] from an afterschool session row
   /// (optional attendance row). The dedup key for the surrounding map
   /// is `'afs:<sessionId>'` so afterschool entries never collide with
-  /// workshop ones.
+  /// workshop ones. `start_time` / `end_time` come from the session
+  /// row directly — the schema stores them per-session, not per-program.
   ChildCalendarSession _sessionFromAfterschool({
     required Map<String, dynamic> sessionRow,
     required Map<String, dynamic>? programBlock,
@@ -202,8 +209,8 @@ class AttendanceCalendarRepository {
     final title = programName ??
         (programBlock?['name'] as String?) ??
         'Afterschool';
-    final startTime = (programBlock?['start_time'] as String?) ?? '';
-    final endTime = (programBlock?['end_time'] as String?) ?? '';
+    final startTime = (sessionRow['start_time'] as String?) ?? '';
+    final endTime = (sessionRow['end_time'] as String?) ?? '';
 
     String? markedByName;
     DateTime? markedAt;
